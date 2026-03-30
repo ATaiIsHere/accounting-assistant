@@ -70,6 +70,19 @@ export interface IdentityPairingCode {
   created_at: string;
 }
 
+export interface ExpenseRow {
+  id: number;
+  date: string;
+  item: string;
+  amount: number;
+  category_name: string;
+}
+
+export interface CategorySummaryRow {
+  category_name: string;
+  total: number;
+}
+
 export interface BootstrapInviteInput {
   account_slug: string;
   display_name: string;
@@ -611,6 +624,58 @@ export class CoreDB {
       ORDER BY e.date DESC, e.id DESC
     `).bind(accountId).all();
     return results || [];
+  }
+
+  async listExpenses(accountId: number, filters: QueryFilters): Promise<ExpenseRow[]> {
+    const conditions = ['e.account_id = ?']
+    const params: Array<string | number> = [accountId]
+
+    if (filters.start_date) {
+      conditions.push('e.date >= ?')
+      params.push(filters.start_date)
+    }
+
+    if (filters.end_date) {
+      conditions.push('e.date <= ?')
+      params.push(filters.end_date)
+    }
+
+    if (filters.category_name) {
+      conditions.push('c.name = ?')
+      params.push(filters.category_name)
+    }
+
+    const sql = `
+      SELECT
+        e.id,
+        e.date,
+        e.item,
+        e.amount,
+        c.name AS category_name
+      FROM expenses e
+      JOIN categories c ON e.category_id = c.id
+      WHERE ${conditions.join(' AND ')}
+      ORDER BY e.date DESC, e.id DESC
+    `
+
+    const { results } = await this.db.prepare(sql).bind(...params).all<ExpenseRow>()
+    return (results || []) as ExpenseRow[]
+  }
+
+  async getCategorySummaryByMonth(accountId: number, year: string, month: string): Promise<CategorySummaryRow[]> {
+    const prefix = `${year}-${month.padStart(2, '0')}`
+    const { results } = await this.db.prepare(`
+      SELECT
+        c.name AS category_name,
+        SUM(e.amount) AS total
+      FROM expenses e
+      JOIN categories c ON e.category_id = c.id
+      WHERE e.account_id = ? AND e.date LIKE ?
+      GROUP BY c.id, c.name
+      ORDER BY total DESC, c.name ASC
+    `).bind(accountId, `${prefix}%`).all<CategorySummaryRow>()
+
+    return (results || []) as CategorySummaryRow[]
   }
 
   async queryExpenses(accountId: number, filters: QueryFilters): Promise<string> {

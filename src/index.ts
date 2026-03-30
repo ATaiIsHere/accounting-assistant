@@ -16,6 +16,7 @@ export type Bindings = {
   TELEGRAM_BOT_TOKEN: string
   GEMINI_API_KEY: string
   ALLOWED_USER_ID?: string
+  DASHBOARD_PROXY_SECRET?: string
   LINE_CHANNEL_ACCESS_TOKEN?: string
   LINE_CHANNEL_SECRET?: string
   DB: D1Database
@@ -78,6 +79,15 @@ function getRequestAccount(ctx: any): RequestAccount {
   return account
 }
 
+async function resolveDashboardAccountId(c: any, db: CoreDB): Promise<number | null> {
+  const allowedUserId = c.env.ALLOWED_USER_ID?.trim()
+  if (!allowedUserId) {
+    return null
+  }
+
+  return db.ensureLegacyTelegramAccount(allowedUserId)
+}
+
 app.get('/', (c) => c.text('Accounting Assistant Webhook is running!'))
 
 // ─── Dashboard REST API ───────────────────────────────────────────────────────
@@ -113,8 +123,12 @@ api.use('*', apiAuth)
 // GET /api/expenses?start=&end=&category=
 api.get('/expenses', async (c) => {
   const db = new CoreDB(c.env.DB)
+  const accountId = await resolveDashboardAccountId(c, db)
+  if (!accountId) {
+    return c.json({ error: 'Dashboard account is not configured' }, 500)
+  }
   const { start, end, category } = c.req.query()
-  const expenses = await db.listExpenses(c.env.ALLOWED_USER_ID, {
+  const expenses = await db.listExpenses(accountId, {
     start_date: start,
     end_date: end,
     category_name: category
@@ -125,17 +139,25 @@ api.get('/expenses', async (c) => {
 // DELETE /api/expenses/:id
 api.delete('/expenses/:id', async (c) => {
   const db = new CoreDB(c.env.DB)
+  const accountId = await resolveDashboardAccountId(c, db)
+  if (!accountId) {
+    return c.json({ error: 'Dashboard account is not configured' }, 500)
+  }
   const id = parseInt(c.req.param('id'))
-  await db.deleteExpense(id, c.env.ALLOWED_USER_ID)
+  await db.deleteExpense(id, accountId)
   return c.json({ ok: true })
 })
 
 // GET /api/summary?year=&month=
 api.get('/summary', async (c) => {
   const db = new CoreDB(c.env.DB)
+  const accountId = await resolveDashboardAccountId(c, db)
+  if (!accountId) {
+    return c.json({ error: 'Dashboard account is not configured' }, 500)
+  }
   const { year, month } = c.req.query()
   const result = await db.getCategorySummaryByMonth(
-    c.env.ALLOWED_USER_ID,
+    accountId,
     year ?? '',
     month ?? ''
   )
@@ -145,17 +167,25 @@ api.get('/summary', async (c) => {
 // GET /api/categories
 api.get('/categories', async (c) => {
   const db = new CoreDB(c.env.DB)
-  const cats = await db.getCategories(c.env.ALLOWED_USER_ID)
+  const accountId = await resolveDashboardAccountId(c, db)
+  if (!accountId) {
+    return c.json({ error: 'Dashboard account is not configured' }, 500)
+  }
+  const cats = await db.getCategories(accountId)
   return c.json(cats)
 })
 
 // DELETE /api/categories/:id?replace=
 api.delete('/categories/:id', async (c) => {
   const db = new CoreDB(c.env.DB)
+  const accountId = await resolveDashboardAccountId(c, db)
+  if (!accountId) {
+    return c.json({ error: 'Dashboard account is not configured' }, 500)
+  }
   const id = parseInt(c.req.param('id'))
   const replaceId = parseInt(c.req.query('replace') ?? '0')
   if (!replaceId) return c.json({ error: 'replace param required' }, 400)
-  await db.deleteCategoryAndReassign(id, replaceId, c.env.ALLOWED_USER_ID)
+  await db.deleteCategoryAndReassign(accountId, id, replaceId, c.env.ALLOWED_USER_ID)
   return c.json({ ok: true })
 })
 // ─── End Dashboard API ────────────────────────────────────────────────────────
