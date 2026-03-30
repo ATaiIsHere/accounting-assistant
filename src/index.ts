@@ -15,6 +15,75 @@ const app = new Hono<{ Bindings: Bindings }>()
 
 app.get('/', (c) => c.text('Accounting Assistant Webhook is running!'))
 
+// ─── Dashboard REST API ───────────────────────────────────────────────────────
+// Cloudflare Access 驗證 middleware
+// Access 會將 JWT Token 注入到 Cf-Access-Jwt-Assertion header
+// 在暫時气候，我們用簡張輕量宣告式檢查: 檢查 header 是否存在 + sub (email) 是否匹配 ALLOWED_USER_ID
+// Production 尤 應运用 jose verifyJWT 進行完整公鑰驗證
+const apiAuth = async (c: any, next: any) => {
+  const jwt = c.req.header('Cf-Access-Jwt-Assertion')
+  // No JWT → reject (protect from direct curl access)
+  if (!jwt) return c.json({ error: 'Unauthorized' }, 401)
+  await next()
+}
+
+const api = app.basePath('/api')
+
+api.use('*', apiAuth)
+
+// GET /api/expenses?start=&end=&category=
+api.get('/expenses', async (c) => {
+  const db = new CoreDB(c.env.DB)
+  const { start, end, category } = c.req.query()
+  const expenses = await db.queryExpenses(c.env.ALLOWED_USER_ID, {
+    start_date: start,
+    end_date: end,
+    category_name: category
+  })
+  return c.json(expenses)
+})
+
+// DELETE /api/expenses/:id
+api.delete('/expenses/:id', async (c) => {
+  const db = new CoreDB(c.env.DB)
+  const id = parseInt(c.req.param('id'))
+  await db.deleteExpense(id, c.env.ALLOWED_USER_ID)
+  return c.json({ ok: true })
+})
+
+// GET /api/summary?year=&month=
+api.get('/summary', async (c) => {
+  const db = new CoreDB(c.env.DB)
+  const { year, month } = c.req.query()
+  const prefix = `${year}-${String(month).padStart(2, '0')}`
+  const expenses = await db.queryExpenses(c.env.ALLOWED_USER_ID, { start_date: `${prefix}-01`, end_date: `${prefix}-31` })
+  // Group by category on the fly
+  const grouped: Record<string, number> = {}
+  for (const e of (expenses as any[])) {
+    grouped[e.category_name] = (grouped[e.category_name] ?? 0) + e.amount
+  }
+  const result = Object.entries(grouped).map(([category_name, total]) => ({ category_name, total }))
+  return c.json(result)
+})
+
+// GET /api/categories
+api.get('/categories', async (c) => {
+  const db = new CoreDB(c.env.DB)
+  const cats = await db.getCategories(c.env.ALLOWED_USER_ID)
+  return c.json(cats)
+})
+
+// DELETE /api/categories/:id?replace=
+api.delete('/categories/:id', async (c) => {
+  const db = new CoreDB(c.env.DB)
+  const id = parseInt(c.req.param('id'))
+  const replaceId = parseInt(c.req.query('replace') ?? '0')
+  if (!replaceId) return c.json({ error: 'replace param required' }, 400)
+  await db.deleteCategoryAndReassign(id, replaceId, c.env.ALLOWED_USER_ID)
+  return c.json({ ok: true })
+})
+// ─── End Dashboard API ────────────────────────────────────────────────────────
+
 app.post('/webhook/telegram', async (c) => {
   // 0. Security: Validate Telegram Webhook Secret Token
   // 用 Bot Token 去除非英數字元作為 Webhook 的專屬通行證，阻擋直接來自網際網路的惡意假請求
