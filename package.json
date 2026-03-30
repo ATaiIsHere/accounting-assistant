@@ -3,11 +3,17 @@
   "type": "module",
   "scripts": {
     "setup": "tsx scripts/setup.ts",
+    "provision:account": "tsx scripts/provision-account.ts",
+    "bootstrap:invite": "tsx scripts/create-bootstrap-invite.ts",
+    "migrate:local": "wrangler d1 migrations apply DB --local",
+    "migrate:remote": "wrangler d1 migrations apply DB --remote",
+    "migrate:staging": "wrangler d1 migrations apply DB --remote -e staging",
     "dev": "wrangler dev",
     "deploy": "tsx scripts/deploy.ts",
     "deploy:staging": "wrangler deploy -e staging --minify",
     "cf-typegen": "wrangler types --env-interface CloudflareBindings",
-    "test": "vitest"
+    "test": "vitest",
+    "test:unit": "vitest --config vitest.unit.config.ts"
   },
   "dependencies": {
     "@google/genai": "^1.46.0",

@@ -35,7 +35,7 @@
         {
           "binding": "DB",
           "database_name": "accounting-db-staging",
-          "database_id": "若要啟用Staging，請替換成新建的 Database ID"
+          "database_id": "c274073d-7c7b-4df9-aaa8-869609f3d433"
         }
       ]
     }

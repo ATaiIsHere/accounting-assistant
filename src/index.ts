@@ -1,18 +1,92 @@
 import { Hono } from 'hono'
-import { Bot, InlineKeyboard, InputFile } from 'grammy'
+import { Bot } from 'grammy'
+import { handleLineEvent, type LineWebhookPayload, verifyLineSignature } from './adapters/line'
+import {
+  applyTelegramActions,
+  handleTelegramBindCommand,
+  handleTelegramBootstrapCommand,
+  handleTelegramPairCommand,
+  resolveTelegramRequestAccount
+} from './adapters/telegram'
 import { CoreDB } from './core/db'
-import { processExpenseWithGemini, extractAmountOnly, processExpenseUpdateWithGemini } from './core/gemini'
+import { AccountingService } from './core/accounting'
 import type { D1Database } from '@cloudflare/workers-types'
 
 export type Bindings = {
   TELEGRAM_BOT_TOKEN: string
   GEMINI_API_KEY: string
-  ALLOWED_USER_ID: string
-  DASHBOARD_PROXY_SECRET: string
+  ALLOWED_USER_ID?: string
+  DASHBOARD_PROXY_SECRET?: string
+  LINE_CHANNEL_ACCESS_TOKEN?: string
+  LINE_CHANNEL_SECRET?: string
   DB: D1Database
 }
 
+type RequestAccount = {
+  accountId: number
+  externalUserId: string
+}
+
 const app = new Hono<{ Bindings: Bindings }>()
+
+let cachedTelegramBotInfo:
+  | {
+      token: string
+      fetchedAt: number
+      info: {
+        id: number
+        is_bot: true
+        first_name: string
+        username: string
+        can_join_groups?: boolean
+        can_read_all_group_messages?: boolean
+        supports_inline_queries?: boolean
+      }
+    }
+  | null = null
+
+async function getTelegramBotInfo(token: string) {
+  const now = Date.now()
+  if (
+    cachedTelegramBotInfo &&
+    cachedTelegramBotInfo.token === token &&
+    now - cachedTelegramBotInfo.fetchedAt < 60 * 60 * 1000
+  ) {
+    return cachedTelegramBotInfo.info
+  }
+
+  const bootstrapBot = new Bot(token)
+  const botInfo = await bootstrapBot.api.getMe()
+  cachedTelegramBotInfo = {
+    token,
+    fetchedAt: now,
+    info: botInfo
+  }
+
+  return botInfo
+}
+
+function setRequestAccount(ctx: any, account: RequestAccount) {
+  ctx.requestAccount = account
+}
+
+function getRequestAccount(ctx: any): RequestAccount {
+  const account = ctx.requestAccount as RequestAccount | undefined
+  if (!account) {
+    throw new Error('Missing request account context')
+  }
+
+  return account
+}
+
+async function resolveDashboardAccountId(c: any, db: CoreDB): Promise<number | null> {
+  const allowedUserId = c.env.ALLOWED_USER_ID?.trim()
+  if (!allowedUserId) {
+    return null
+  }
+
+  return db.ensureLegacyTelegramAccount(allowedUserId)
+}
 
 app.get('/', (c) => c.text('Accounting Assistant Webhook is running!'))
 
@@ -49,8 +123,12 @@ api.use('*', apiAuth)
 // GET /api/expenses?start=&end=&category=
 api.get('/expenses', async (c) => {
   const db = new CoreDB(c.env.DB)
+  const accountId = await resolveDashboardAccountId(c, db)
+  if (!accountId) {
+    return c.json({ error: 'Dashboard account is not configured' }, 500)
+  }
   const { start, end, category } = c.req.query()
-  const expenses = await db.listExpenses(c.env.ALLOWED_USER_ID, {
+  const expenses = await db.listExpenses(accountId, {
     start_date: start,
     end_date: end,
     category_name: category
@@ -61,17 +139,25 @@ api.get('/expenses', async (c) => {
 // DELETE /api/expenses/:id
 api.delete('/expenses/:id', async (c) => {
   const db = new CoreDB(c.env.DB)
+  const accountId = await resolveDashboardAccountId(c, db)
+  if (!accountId) {
+    return c.json({ error: 'Dashboard account is not configured' }, 500)
+  }
   const id = parseInt(c.req.param('id'))
-  await db.deleteExpense(id, c.env.ALLOWED_USER_ID)
+  await db.deleteExpense(id, accountId)
   return c.json({ ok: true })
 })
 
 // GET /api/summary?year=&month=
 api.get('/summary', async (c) => {
   const db = new CoreDB(c.env.DB)
+  const accountId = await resolveDashboardAccountId(c, db)
+  if (!accountId) {
+    return c.json({ error: 'Dashboard account is not configured' }, 500)
+  }
   const { year, month } = c.req.query()
   const result = await db.getCategorySummaryByMonth(
-    c.env.ALLOWED_USER_ID,
+    accountId,
     year ?? '',
     month ?? ''
   )
@@ -81,17 +167,25 @@ api.get('/summary', async (c) => {
 // GET /api/categories
 api.get('/categories', async (c) => {
   const db = new CoreDB(c.env.DB)
-  const cats = await db.getCategories(c.env.ALLOWED_USER_ID)
+  const accountId = await resolveDashboardAccountId(c, db)
+  if (!accountId) {
+    return c.json({ error: 'Dashboard account is not configured' }, 500)
+  }
+  const cats = await db.getCategories(accountId)
   return c.json(cats)
 })
 
 // DELETE /api/categories/:id?replace=
 api.delete('/categories/:id', async (c) => {
   const db = new CoreDB(c.env.DB)
+  const accountId = await resolveDashboardAccountId(c, db)
+  if (!accountId) {
+    return c.json({ error: 'Dashboard account is not configured' }, 500)
+  }
   const id = parseInt(c.req.param('id'))
   const replaceId = parseInt(c.req.query('replace') ?? '0')
   if (!replaceId) return c.json({ error: 'replace param required' }, 400)
-  await db.deleteCategoryAndReassign(id, replaceId, c.env.ALLOWED_USER_ID)
+  await db.deleteCategoryAndReassign(accountId, id, replaceId, c.env.ALLOWED_USER_ID)
   return c.json({ ok: true })
 })
 // ─── End Dashboard API ────────────────────────────────────────────────────────
@@ -105,138 +199,119 @@ app.post('/webhook/telegram', async (c) => {
     return c.text('Unauthorized', 401)
   }
 
+  const botInfo = await getTelegramBotInfo(c.env.TELEGRAM_BOT_TOKEN)
   const bot = new Bot(c.env.TELEGRAM_BOT_TOKEN, {
-    botInfo: {
-      id: 1,
-      is_bot: true,
-      first_name: "Accounting Assistant",
-      username: "accountant_bot",
-      can_join_groups: true,
-      can_read_all_group_messages: true,
-      supports_inline_queries: false,
-    } as any
+    botInfo
   })
   const db = new CoreDB(c.env.DB)
-  const TIMEZONE_OFFSET = 8 * 60 * 60 * 1000 // UTC+8
+  const accounting = new AccountingService(db, {
+    geminiApiKey: c.env.GEMINI_API_KEY,
+    timezoneOffsetMs: 8 * 60 * 60 * 1000
+  })
   
+  bot.command('create', async (ctx) => {
+    const actions = await handleTelegramBootstrapCommand({
+      chatType: ctx.chat?.type,
+      externalUserId: ctx.from?.id?.toString(),
+      bootstrapCode: typeof ctx.match === 'string' ? ctx.match : null,
+      db,
+      allowedUserId: c.env.ALLOWED_USER_ID
+    })
+    if (!actions) {
+      return
+    }
+
+    await applyTelegramActions(ctx, actions)
+  })
+
+  bot.hears(/^綁定(?:\s+.+)?$/u, async (ctx) => {
+    const actions = await handleTelegramBindCommand({
+      chatType: ctx.chat?.type,
+      externalUserId: ctx.from?.id?.toString(),
+      text: ctx.message?.text,
+      db,
+      allowedUserId: c.env.ALLOWED_USER_ID
+    })
+    if (!actions) {
+      return
+    }
+
+    await applyTelegramActions(ctx, actions)
+  })
+
   // 1. Authentication
   bot.use(async (ctx, next) => {
-    if (ctx.from?.id.toString() !== c.env.ALLOWED_USER_ID) return
+    const account = await resolveTelegramRequestAccount({
+      chatType: ctx.chat?.type,
+      externalUserId: ctx.from?.id?.toString(),
+      db,
+      allowedUserId: c.env.ALLOWED_USER_ID
+    })
+    if (!account) return
+
+    setRequestAccount(ctx, account)
     await next()
   })
 
   // 2. Simple Commands
-  bot.command('start', (ctx) => ctx.reply('👋 歡迎使用 Edge AI 記帳助手！\n\n直接傳送文字（如：午餐 150）或上傳發票照片即可自動記帳。您可以隨時輸入 /help 查看完整教學。'))
+  bot.command('pair', async (ctx) => {
+    const account = getRequestAccount(ctx)
+    const actions = await handleTelegramPairCommand({
+      chatType: ctx.chat?.type,
+      accountId: account.accountId,
+      rawTargetProvider: typeof ctx.match === 'string' ? ctx.match : null,
+      db
+    })
+    if (!actions) {
+      return
+    }
+
+    await applyTelegramActions(ctx, actions)
+  })
+
+  bot.command('start', async (ctx) => {
+    const account = getRequestAccount(ctx)
+    await applyTelegramActions(
+      ctx,
+      await accounting.handleCommand('start', { accountId: account.accountId, ownerRef: account.externalUserId })
+    )
+  })
 
   bot.command('help', async (ctx) => {
-    const helpText = `
-🤖 **Edge AI 記帳助手使用指南**
-
-📌 **基本指令**
-/start - 啟動機器人
-/help - 顯示此說明
-/summary - 查看本月花費總結
-/categories - 列出建立的所有分類
-/export - 將完整帳目匯出為 CSV 檔案
-
-💬 **自然語言記帳 & 查詢**
-- **記帳**：直接輸入「午餐 150」、「搭車 50」，或傳送發票照片。
-- **查詢**：直接輸入「這個月吃飯花多少？」、「今天花了多少錢？」。
-- **刪除分類**：直接輸入「幫我刪掉早餐分類」，系統會引導轉移舊帳目。
-
-✏️ **編輯舊帳目**
-對著過去的「帳目成功紀錄」**長按並點擊 Reply (回覆)**，接著輸入想修改的內容：
-- 「金額改成 200」
-- 「其實是昨天的晚餐」
-- 「刪掉這筆」
-系統就會自動幫你精準修改該筆紀錄！
-    `.trim()
-    await ctx.reply(helpText, { parse_mode: "Markdown" })
+    const account = getRequestAccount(ctx)
+    await applyTelegramActions(
+      ctx,
+      await accounting.handleCommand('help', { accountId: account.accountId, ownerRef: account.externalUserId })
+    )
   })
 
   bot.command('summary', async (ctx) => {
-    const now = new Date(Date.now() + TIMEZONE_OFFSET)
-    const monthPrefix = now.toISOString().slice(0, 7)
-    const total = await db.getMonthlySummary(c.env.ALLOWED_USER_ID, monthPrefix)
-    await ctx.reply(`📊 本月 (${monthPrefix}) 累積花費：$${total}`)
+    const account = getRequestAccount(ctx)
+    await applyTelegramActions(
+      ctx,
+      await accounting.handleCommand('summary', { accountId: account.accountId, ownerRef: account.externalUserId })
+    )
   })
 
   bot.command('categories', async (ctx) => {
-    const categories = await db.getCategories(c.env.ALLOWED_USER_ID)
-    if (categories.length === 0) {
-      await ctx.reply('📂 目前沒有任何帳目分類喔！')
-      return
-    }
-    const text = '📂 你的所有分類如下：\n' + categories.map(c => `- ${c.name}`).join('\n')
-    await ctx.reply(text)
+    const account = getRequestAccount(ctx)
+    await applyTelegramActions(
+      ctx,
+      await accounting.handleCommand('categories', { accountId: account.accountId, ownerRef: account.externalUserId })
+    )
   })
 
   bot.command('export', async (ctx) => {
-    const expenses = await db.getAllExpenses(c.env.ALLOWED_USER_ID)
-    if (expenses.length === 0) {
-      await ctx.reply('目前沒有任何記帳紀錄。')
-      return
-    }
-    const header = '\uFEFFID,Date,Item,Amount,Category,RawMessage\n' 
-    const rows = expenses.map(e => `${e.id},${e.date},"${e.item.replace(/"/g, '""')}",${e.amount},"${e.category_name}","${(e.raw_message || '').replace(/"/g, '""')}"`)
-    const csvContent = header + rows.join('\n')
-    
-    const buffer = new TextEncoder().encode(csvContent)
-    await ctx.replyWithDocument(new InputFile(buffer, 'expenses.csv'))
+    const account = getRequestAccount(ctx)
+    await applyTelegramActions(
+      ctx,
+      await accounting.handleCommand('export', { accountId: account.accountId, ownerRef: account.externalUserId })
+    )
   })
 
   // 3. Core Text & Photo Logic
   bot.on(['message:text', 'message:photo'], async (ctx) => {
-    // 3.1 Reply-and-modify/delete Anchor Logic
-    if (ctx.message?.reply_to_message?.text && ctx.message.text) {
-      const match = ctx.message.reply_to_message.text.match(/\(ID: #(\d+)\)/)
-      if (match) {
-        const id = parseInt(match[1])
-        const text = ctx.message.text
-        if (text.includes('刪除') || text.includes('delete') || text === '刪掉') {
-          await db.deleteExpense(id, c.env.ALLOWED_USER_ID)
-          await ctx.reply(`🗑️ 帳目 #${id} 已刪除！`)
-        } else {
-          const oldExp = await db.getExpense(id, c.env.ALLOWED_USER_ID)
-          if (!oldExp) {
-            await ctx.reply(`❌ 找不到指定的帳目 #${id}！`)
-            return
-          }
-          
-          const categories = await db.getCategories(c.env.ALLOWED_USER_ID)
-          const catNames = categories.map(c => c.name)
-
-          const processRes = await processExpenseUpdateWithGemini(c.env.GEMINI_API_KEY, catNames, text, oldExp)
-          
-          if (Object.keys(processRes).length > 0) {
-            const dbUpdates: any = {}
-            const replyMsg: string[] = []
-            
-            if (processRes.amount !== undefined) { dbUpdates.amount = processRes.amount; replyMsg.push(`💰 金額改為：$${processRes.amount}`) }
-            if (processRes.date !== undefined) { dbUpdates.date = processRes.date; replyMsg.push(`📅 日期改為：${processRes.date}`) }
-            if (processRes.item !== undefined) { dbUpdates.item = processRes.item; replyMsg.push(`🏷️ 項目改為：${processRes.item}`) }
-            if (processRes.suggested_category !== undefined) {
-               let catId = await db.getCategoryByName(c.env.ALLOWED_USER_ID, processRes.suggested_category)
-               if (!catId) catId = await db.createCategory(c.env.ALLOWED_USER_ID, processRes.suggested_category)
-               dbUpdates.category_id = catId
-               replyMsg.push(`📂 分類改為：${processRes.suggested_category}`)
-            }
-
-            if (Object.keys(dbUpdates).length > 0) {
-              await db.updateExpense(id, c.env.ALLOWED_USER_ID, dbUpdates)
-              await ctx.reply(`🔄 帳目 #${id} 已更新！\n──────────\n${replyMsg.join('\n')}`)
-            } else {
-              await ctx.reply('無法判斷您要修改的內容。請具體說明要修改哪個欄位（如：金額改為 200）。')
-            }
-          } else {
-            await ctx.reply('無法判斷您要修改的內容。請具體說明要修改哪個欄位（如：金額改為 200）。')
-          }
-        }
-        return
-      }
-    }
-
-    // 3.2 Main Expense Parsing
+    const account = getRequestAccount(ctx)
     const textInput = ctx.message.text || ctx.message.caption || null
     let imageBuffer: ArrayBuffer | null = null
     let imageMime: string | null = null
@@ -253,138 +328,77 @@ app.post('/webhook/telegram', async (c) => {
       imageMime = 'image/jpeg' 
     }
 
-    const categories = await db.getCategories(c.env.ALLOWED_USER_ID)
-    const catNames = categories.map(c => c.name)
-
-    const parsed = await processExpenseWithGemini(
-      c.env.GEMINI_API_KEY, catNames, textInput, imageBuffer, imageMime, TIMEZONE_OFFSET
+    await applyTelegramActions(
+      ctx,
+      await accounting.handleMessage(
+        { accountId: account.accountId, ownerRef: account.externalUserId },
+        {
+          text: textInput,
+          imageBuffer,
+          imageMime,
+          mediaReference: mediaRef,
+          replyAnchorText: ctx.message?.reply_to_message?.text || null,
+          replyText: ctx.message?.text || null
+        }
+      )
     )
-
-    if (parsed.action === 'error') {
-      if (parsed.message === 'NOT_EXPENSE') {
-         await ctx.reply('🤔 這看似與記帳或查詢指令無關，請重試！')
-      } else {
-         await ctx.reply(`🤔 解析失敗：${parsed.message || '未知錯誤'}`)
-      }
-      return
-    }
-
-    if (parsed.action === 'query') {
-      const report = await db.queryExpenses(c.env.ALLOWED_USER_ID, parsed.filters || {})
-      await ctx.reply(report)
-      return
-    }
-
-    if (parsed.action === 'delete_category' && parsed.category_name) {
-      const catId = await db.getCategoryByName(c.env.ALLOWED_USER_ID, parsed.category_name)
-      if (!catId) {
-        await ctx.reply(`找不到名為「${parsed.category_name}」的分類！`)
-        return
-      }
-      
-      const otherCats = categories.filter(c => c.id !== catId)
-      if (otherCats.length === 0) {
-        // Edge case: only category
-        await db.deleteCategoryAndReassign(c.env.ALLOWED_USER_ID, catId, null)
-        await ctx.reply(`🗑️ 已刪除分類「${parsed.category_name}」，因無其他分類，關聯帳目已直接移至系統底層「未分類」。`)
-        return
-      }
-
-      // Show inline keyboard to select target category for reassignment
-      const keyboard = new InlineKeyboard()
-      otherCats.forEach(c => {
-         keyboard.text(`👉 移至【${c.name}】`, `reassign:${catId}:${c.id}`).row()
-      })
-      keyboard.text(`⚠️ 移至系統底層【未分類】`, `reassign:${catId}:uncat`).row()
-      keyboard.text('❌ 取消刪除', `cancel_delete:0:0`)
-      
-      await ctx.reply(`🗑️ 準備刪除分類「${parsed.category_name}」。\n請問原有的記帳紀錄要移轉至哪個分類？`, { reply_markup: keyboard })
-      return
-    }
-
-    if (parsed.action === 'insert' && parsed.data) {
-      const { date, item, amount, suggested_category } = parsed.data
-      let categoryId = await db.getCategoryByName(c.env.ALLOWED_USER_ID, suggested_category)
-      
-      if (categoryId) {
-        // Direct insertion
-        const id = await db.insertExpense({
-          user_id: c.env.ALLOWED_USER_ID, date, item, amount, category_id: categoryId,
-          raw_message: textInput || undefined, media_reference: mediaRef || undefined
-        })
-        await ctx.reply(`✅ 已記錄支出！\n──────────\n📅 日期：${date}\n🏷️ 項目：${item}\n📂 分類：${suggested_category}\n💰 金額：$${amount}\n──────────\n(ID: #${id})`)
-      } else {
-        // Dynamic Category Interaction Setup
-        const draftId = crypto.randomUUID().slice(0, 8)
-        await db.savePendingExpense({
-          draft_id: draftId, user_id: c.env.ALLOWED_USER_ID, date, item, amount, suggested_category,
-          raw_message: textInput || undefined, media_reference: mediaRef || undefined
-        })
-        const keyboard = new InlineKeyboard()
-          .text('✅ 建立並記帳', `confirm_draft:${draftId}`)
-          .text('❌ 取消', `cancel_draft:${draftId}`)
-        
-        await ctx.reply(`找不到合適分類，AI 建議為【${suggested_category}】，是否建立新分類並記帳？\n📅 ${date} | 🏷 ${item} | 💰 $${amount}`, { reply_markup: keyboard })
-      }
-    }
   })
 
   // 4. Inline Keyboard Callback Integration
   bot.on('callback_query:data', async (ctx) => {
-    const data = ctx.callbackQuery.data
-    const parts = data.split(':')
-    const action = parts[0]
-    
-    if (action === 'cancel_draft') {
-      await db.deletePendingExpense(parts[1])
-      await ctx.editMessageText('❌ 已取消記帳草稿。')
-      await ctx.answerCallbackQuery()
-      return
-    }
-
-    if (action === 'confirm_draft') {
-      const draftId = parts[1]
-      const draft = await db.getPendingExpense(draftId)
-      if (!draft) {
-        await ctx.answerCallbackQuery({ text: '草稿已過期或不存在！', show_alert: true })
-        return
-      }
-
-      let catId = await db.getCategoryByName(c.env.ALLOWED_USER_ID, draft.suggested_category)
-      if (!catId) catId = await db.createCategory(c.env.ALLOWED_USER_ID, draft.suggested_category)
-      
-      const id = await db.insertExpense({
-        user_id: c.env.ALLOWED_USER_ID, date: draft.date, item: draft.item, amount: draft.amount,
-        category_id: catId, raw_message: draft.raw_message, media_reference: draft.media_reference
-      })
-      await db.deletePendingExpense(draftId)
-
-      await ctx.editMessageText(`✅ 已記錄支出並建立新分類！\n──────────\n📅 日期：${draft.date}\n🏷️ 項目：${draft.item}\n📂 分類：${draft.suggested_category}\n💰 金額：$${draft.amount}\n──────────\n(ID: #${id})`)
-      await ctx.answerCallbackQuery()
-      return
-    }
-
-    if (action === 'cancel_delete') {
-      await ctx.editMessageText('❌ 已取消刪除分類。')
-      await ctx.answerCallbackQuery()
-      return
-    }
-
-    if (action === 'reassign') {
-      const oldCatId = parseInt(parts[1])
-      const newCatIdStr = parts[2]
-      const newCatId = newCatIdStr === 'uncat' ? null : parseInt(newCatIdStr)
-      
-      await db.deleteCategoryAndReassign(c.env.ALLOWED_USER_ID, oldCatId, newCatId)
-      await ctx.editMessageText('✅ 已成功將關聯紀錄移轉並刪除舊分類！')
-      await ctx.answerCallbackQuery()
-      return
-    }
+    const account = getRequestAccount(ctx)
+    await applyTelegramActions(
+      ctx,
+      await accounting.handleCallback(
+        { accountId: account.accountId, ownerRef: account.externalUserId },
+        ctx.callbackQuery.data
+      )
+    )
   })
 
   // 5. Cloudflare Workers safe background execution pattern
   const update = await c.req.json()
   c.executionCtx.waitUntil(bot.handleUpdate(update))
+  return c.json({ ok: true })
+})
+
+app.post('/webhook/line', async (c) => {
+  if (!c.env.LINE_CHANNEL_ACCESS_TOKEN || !c.env.LINE_CHANNEL_SECRET) {
+    return c.text('LINE is not configured', 503)
+  }
+
+  const rawBody = await c.req.text()
+  const isValidSignature = await verifyLineSignature(
+    c.env.LINE_CHANNEL_SECRET,
+    rawBody,
+    c.req.header('x-line-signature')
+  )
+  if (!isValidSignature) {
+    return c.text('Unauthorized', 401)
+  }
+
+  const payload = JSON.parse(rawBody) as LineWebhookPayload
+  const db = new CoreDB(c.env.DB)
+  const accounting = new AccountingService(db, {
+    geminiApiKey: c.env.GEMINI_API_KEY,
+    timezoneOffsetMs: 8 * 60 * 60 * 1000
+  })
+
+  c.executionCtx.waitUntil(
+    Promise.all(
+      (payload.events || []).map((event) =>
+        handleLineEvent({
+          event,
+          db,
+          accounting,
+          lineAccessToken: c.env.LINE_CHANNEL_ACCESS_TOKEN!
+        }).catch((error) => {
+          console.error('Failed to handle LINE event', error)
+        })
+      )
+    )
+  )
+
   return c.json({ ok: true })
 })
 
