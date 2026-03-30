@@ -16,7 +16,7 @@
 - [ ] 2.3 Add constraints or indexes that prevent one external identity from being linked to multiple accounts.
 - [ ] 2.4 Define the first-version provisioning flow for 2 to 3 manually managed users.
 - [ ] 2.5 Backfill or migrate the current single-user Telegram data into the new account model.
-- [ ] 2.6 Add or design an admin provisioning script for creating accounts and linked identities.
+- [x] 2.6 Add or design an admin provisioning script for creating accounts and linked identities.
 
 ## 3. Extract the accounting core
 

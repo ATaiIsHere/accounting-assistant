@@ -3,6 +3,7 @@
   "type": "module",
   "scripts": {
     "setup": "tsx scripts/setup.ts",
+    "provision:account": "tsx scripts/provision-account.ts",
     "dev": "wrangler dev",
     "deploy": "tsx scripts/deploy.ts",
     "deploy:staging": "wrangler deploy -e staging --minify",
