@@ -74,12 +74,30 @@ npm run migrate:remote
 npm run provision:account -- --remote --env production --account-slug amy --display-name "Amy" --telegram-user-id 123456789 --line-user-id Uxxxxxxxx
 ```
 
+若您要讓新使用者從任一通訊軟體自助建立帳本，先由管理者建立 bootstrap invite：
+
+```bash
+npm run bootstrap:invite -- --remote --env production --account-slug amy --display-name "Amy"
+```
+
+建立後腳本會印出邀請碼。使用者可用：
+
+- Telegram：`/create <邀請碼>`
+- LINE：`建立帳本 <邀請碼>`
+
+若使用者之後想把另一個通訊軟體綁到同一本帳本：
+
+- Telegram：`/pair line`
+- LINE：`配對 telegram`
+- 目標通訊軟體：`綁定 <配對碼>`
+
 可用指令：
 
 - `npm run migrate:local`
 - `npm run migrate:remote`
 - `npm run migrate:staging`
 - `npm run provision:account -- --dry-run ...`
+- `npm run bootstrap:invite -- --dry-run ...`
 
 ### 4. 終極一鍵部署 (Deploy to Production)
 現在我們已經將環境設定、部署、與 Webhook 註冊**完美串接在同一個指令**中！若您是第一次克隆此專案，只要跑這一行就夠了：

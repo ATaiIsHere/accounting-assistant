@@ -4,6 +4,7 @@
   "scripts": {
     "setup": "tsx scripts/setup.ts",
     "provision:account": "tsx scripts/provision-account.ts",
+    "bootstrap:invite": "tsx scripts/create-bootstrap-invite.ts",
     "migrate:local": "wrangler d1 migrations apply DB --local",
     "migrate:remote": "wrangler d1 migrations apply DB --remote",
     "migrate:staging": "wrangler d1 migrations apply DB --remote -e staging",
