@@ -75,5 +75,5 @@ Runbook:
 
 - LINE export currently falls back to a text instruction because LINE has no direct Telegram-style document delivery equivalent in the current adapter.
 - LINE postback flows currently render callback alerts and edit results as visible text replies because LINE has no exact equivalent to Telegram callback alerts or message edits.
-- Manual verification showed cross-service usage still requires either pre-provisioned identities or a follow-up provider-neutral bootstrap and pairing flow; see change `add-provider-bootstrap-and-pairing`.
+- Provider-neutral bootstrap and pairing were verified on 2026-03-30 in change `add-provider-bootstrap-and-pairing`, so fresh cross-service onboarding no longer depends on pre-provisioned identities.
 - Real provider provisioning and end-to-end manual verification still remain for tasks `8.3` and `8.4`.

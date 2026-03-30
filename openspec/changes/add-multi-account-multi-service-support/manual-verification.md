@@ -6,6 +6,10 @@ Before running the cross-service checks below on a fresh account, first complete
 
 - `openspec/changes/add-provider-bootstrap-and-pairing/manual-verification.md`
 
+Status:
+
+- 2026-03-30 staging verification completed the provider-neutral bootstrap, pairing, and code reuse/expiry checks in the follow-up change.
+
 This runbook covers the remaining OpenSpec verification items:
 
 - `8.2` Manually review Telegram behavior for regressions after adapter extraction

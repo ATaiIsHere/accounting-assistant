@@ -41,15 +41,16 @@
 ## 5. Verification
 
 - [x] 5.1 Run the relevant automated tests.
-- [ ] 5.2 Manually verify a new account can be bootstrapped from Telegram with a valid invite.
-- [ ] 5.3 Manually verify a new account can be bootstrapped from LINE with a valid invite.
+- [x] 5.2 Manually verify a new account can be bootstrapped from Telegram with a valid invite.
+- [x] 5.3 Manually verify a new account can be bootstrapped from LINE with a valid invite.
 - [x] 5.4 Manually verify any linked provider can issue a pairing code for another supported provider.
 - [x] 5.5 Manually verify the target provider can consume the code and immediately share the same ledger.
-- [ ] 5.6 Manually verify expired or already-used bootstrap and pairing codes cannot be reused.
-- [ ] 5.7 Update the previous multi-service verification notes once provider-neutral bootstrap and pairing pass.
+- [x] 5.6 Manually verify expired or already-used bootstrap and pairing codes cannot be reused.
+- [x] 5.7 Update the previous multi-service verification notes once provider-neutral bootstrap and pairing pass.
 
 Verification notes:
 
-- Use `openspec/changes/add-provider-bootstrap-and-pairing/manual-verification.md` for the final live-provider runbook.
-- Terminal-only smoke testing confirmed migrations, remote D1 admin scripts, and automated coverage, but the remaining checks still require real Telegram/LINE user identities.
+- Use `openspec/changes/add-provider-bootstrap-and-pairing/manual-verification.md` for the reproducible live-provider runbook.
+- 2026-03-30 staging: simulated Telegram and LINE webhooks created fresh accounts from valid invites and marked bootstrap codes as `used` with the expected provider identities.
 - 2026-03-30 staging: a linked Telegram account successfully issued `/pair line`, LINE successfully consumed `綁定 <配對碼>`, and `/summary` matched across Telegram and LINE immediately after pairing.
+- 2026-03-30 staging: reused bootstrap and pairing codes did not create new identities, and expired bootstrap and pairing codes transitioned to `expired` without creating accounts or links.
