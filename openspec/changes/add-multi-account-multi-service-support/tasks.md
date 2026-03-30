@@ -68,6 +68,9 @@
 - [ ] 8.4 Manually verify different accounts cannot see each other's data.
 - [x] 8.5 Mark completed items and record any intentionally deferred provider-parity gaps.
 
+Runbook:
+- `openspec/changes/add-multi-account-multi-service-support/manual-verification.md`
+
 ## Deferred parity gaps
 
 - LINE export currently falls back to a text instruction because LINE has no direct Telegram-style document delivery equivalent in the current adapter.
