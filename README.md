@@ -13,7 +13,12 @@
 - Dashboard API 需要 `DASHBOARD_PROXY_SECRET`
 - Pages 站點需要搭配 Cloudflare Access / Zero Trust 才會對外提供內容
 
-## 專案結構
+### 1. 準備工作 (Prerequisites)
+- [Cloudflare 帳號](https://dash.cloudflare.com/) 
+- Telegram Bot Token (向 [@BotFather](https://t.me/BotFather) 申請)
+- LINE Channel Access Token 與 Channel Secret（若要啟用 LINE）
+- [Google AI Studio API Key](https://aistudio.google.com/app/apikey) (Gemini Token)
+- 你的 Telegram User ID (可向 [@userinfobot](https://t.me/userinfobot) 查詢)
 
 ```text
 accounting-assistant/
@@ -58,6 +63,7 @@ npm run setup
 1. 自動創建 `accounting-db` 資料庫並覆寫 `wrangler.jsonc`。
 2. 自動套用 `wrangler d1 migrations`，建立或升級資料庫結構。
 3. 透過互動式介面引導您輸入 `TELEGRAM_BOT_TOKEN`、`GEMINI_API_KEY` 與 `ALLOWED_USER_ID`，並自動安全地加密存入 Cloudflare Secrets 中。
+4. 若有提供 `LINE_CHANNEL_ACCESS_TOKEN` 與 `LINE_CHANNEL_SECRET`，也會一併寫入 Cloudflare Secrets 與 `.dev.vars`。
 
 ### 3.5 既有資料庫升級與帳號綁定 (Multi-account Bootstrap)
 
@@ -84,8 +90,9 @@ npm run deploy
 1. **[偵測]** 發現環境未初始化，自動呼叫 `npm run setup` 建立 D1 資料庫與安全憑證。
 2. **[建置]** 自動編譯並將程式碼發佈推送到 Cloudflare Workers。
 3. **[註冊]** 自動呼叫 Telegram API，將您的專屬 Worker 網址安全註冊為伺服器 Webhook。
+4. **[LINE]** 若本機 `.dev.vars` 有 `LINE_CHANNEL_ACCESS_TOKEN`，會自動設定 `/webhook/line` 並送出測試 webhook。
 
-## 本機開發
+看到 `🎉 Telegram Webhook 註冊成功！` 或 `🎉 LINE webhook endpoint 設定完成` 即代表部署已完成。若是 LINE，仍需到 LINE Developers Console 確認 `Use webhook` 已啟用。
 
 ### 1. 啟動後端 Worker
 
