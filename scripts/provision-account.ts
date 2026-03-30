@@ -129,13 +129,12 @@ ON CONFLICT(provider, external_user_id) DO UPDATE SET
 WHERE account_id = excluded.account_id;`.trim();
 }
 
-function buildProvisionSql(answers: ProvisionAnswers): string {
+function buildProvisionSql(answers: ProvisionAnswers): { statements: string[]; sql: string } {
   const slug = escapeSql(answers.accountSlug);
   const displayName = escapeSql(answers.displayName);
   const status = escapeSql(answers.status);
 
   const statements: string[] = [
-    'BEGIN TRANSACTION;',
     `
 INSERT INTO accounts (slug, display_name, status)
 VALUES ('${slug}', '${displayName}', '${status}')
@@ -152,7 +151,6 @@ ON CONFLICT(slug) DO UPDATE SET
     statements.push(buildIdentityUpsertSql(answers.accountSlug, 'line', answers.lineUserId));
   }
 
-  statements.push('COMMIT;');
   statements.push(`
 SELECT
     id,
@@ -172,11 +170,43 @@ JOIN accounts a ON a.id = ai.account_id
 WHERE a.slug = '${slug}'
 ORDER BY ai.provider ASC, ai.external_user_id ASC;`.trim());
 
-  return `${statements.join('\n\n')}\n`;
+  return {
+    statements,
+    sql: `${statements.join('\n\n')}\n`
+  };
+}
+
+function hasCommand(command: string): boolean {
+  try {
+    execSync(`command -v ${command}`, {
+      encoding: 'utf-8',
+      stdio: 'ignore',
+      shell: '/bin/zsh'
+    });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function getWranglerCommandPrefix(): string[] {
+  if (hasCommand('bunx')) {
+    return ['bunx', 'wrangler'];
+  }
+
+  if (hasCommand('npx')) {
+    return ['npx', 'wrangler'];
+  }
+
+  if (hasCommand('wrangler')) {
+    return ['wrangler'];
+  }
+
+  throw new Error('找不到 wrangler 執行方式，請先安裝 bunx、npx 或 wrangler。');
 }
 
 function buildWranglerCommand(sqlFilePath: string, answers: ProvisionAnswers): string {
-  const args = ['npx', 'wrangler', 'd1', 'execute', 'DB'];
+  const args = [...getWranglerCommandPrefix(), 'd1', 'execute', 'DB'];
 
   if (answers.targetMode === 'remote') {
     args.push('--remote');
@@ -191,6 +221,24 @@ function buildWranglerCommand(sqlFilePath: string, answers: ProvisionAnswers): s
   args.push(`--file=${sqlFilePath}`);
 
   return args.join(' ');
+}
+
+function runWranglerStatement(sql: string, answers: ProvisionAnswers): string {
+  const tempFilePath = path.join(os.tmpdir(), `provision-account-${Date.now()}-${Math.random()}.sql`);
+  fs.writeFileSync(tempFilePath, `${sql.trim()}\n`);
+
+  try {
+    const command = buildWranglerCommand(tempFilePath, answers);
+    return runWranglerSql(command);
+  } finally {
+    if (fs.existsSync(tempFilePath)) {
+      fs.unlinkSync(tempFilePath);
+    }
+  }
+}
+
+function runWranglerStatements(statements: string[], answers: ProvisionAnswers): string {
+  return statements.map((statement) => runWranglerStatement(statement, answers)).join('\n');
 }
 
 async function collectAnswers(options: CliOptions): Promise<ProvisionAnswers> {
@@ -314,7 +362,7 @@ async function run() {
   try {
     const options = parseArgs(process.argv.slice(2));
     const answers = await collectAnswers(options);
-    const sql = buildProvisionSql(answers);
+    const { statements, sql } = buildProvisionSql(answers);
 
     console.log(`📍 目標：${answers.targetMode} / ${answers.env}`);
     console.log(`👤 account: ${answers.accountSlug} (${answers.displayName})`);
@@ -327,19 +375,9 @@ async function run() {
       return;
     }
 
-    const tempFilePath = path.join(os.tmpdir(), `provision-account-${Date.now()}.sql`);
-    fs.writeFileSync(tempFilePath, sql);
-
-    try {
-      const command = buildWranglerCommand(tempFilePath, answers);
-      const output = runWranglerSql(command);
-      console.log('✅ Provisioning 完成！\n');
-      console.log(output);
-    } finally {
-      if (fs.existsSync(tempFilePath)) {
-        fs.unlinkSync(tempFilePath);
-      }
-    }
+    const output = runWranglerStatements(statements, answers);
+    console.log('✅ Provisioning 完成！\n');
+    console.log(output);
   } catch (error) {
     console.error('❌ Provisioning 失敗:', error);
     process.exitCode = 1;

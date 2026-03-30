@@ -122,7 +122,12 @@ function escapeSql(value: string): string {
   return value.replace(/'/g, "''");
 }
 
-function buildInviteSql(answers: InviteAnswers): { sql: string; expiresAt: string; codeHash: string } {
+function buildInviteSql(answers: InviteAnswers): {
+  statements: string[];
+  sql: string;
+  expiresAt: string;
+  codeHash: string;
+} {
   const expiresAt = new Date(Date.now() + answers.ttlHours * 60 * 60 * 1000).toISOString();
   const codeHash = hashCode(answers.code);
   const slug = escapeSql(answers.accountSlug);
@@ -131,7 +136,6 @@ function buildInviteSql(answers: InviteAnswers): { sql: string; expiresAt: strin
   const escapedExpiresAt = escapeSql(expiresAt);
 
   const statements = [
-    'BEGIN TRANSACTION;',
     `
 UPDATE account_bootstrap_codes
 SET status = 'revoked'
@@ -151,7 +155,6 @@ INSERT INTO account_bootstrap_codes (
     'pending',
     '${escapedExpiresAt}'
 );`.trim(),
-    'COMMIT;',
     `
 SELECT
     account_slug,
@@ -166,14 +169,44 @@ LIMIT 1;`.trim()
   ];
 
   return {
+    statements,
     sql: `${statements.join('\n\n')}\n`,
     expiresAt,
     codeHash
   };
 }
 
+function hasCommand(command: string): boolean {
+  try {
+    execSync(`command -v ${command}`, {
+      encoding: 'utf-8',
+      stdio: 'ignore',
+      shell: '/bin/zsh'
+    });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function getWranglerCommandPrefix(): string[] {
+  if (hasCommand('bunx')) {
+    return ['bunx', 'wrangler'];
+  }
+
+  if (hasCommand('npx')) {
+    return ['npx', 'wrangler'];
+  }
+
+  if (hasCommand('wrangler')) {
+    return ['wrangler'];
+  }
+
+  throw new Error('找不到 wrangler 執行方式，請先安裝 bunx、npx 或 wrangler。');
+}
+
 function buildWranglerCommand(sqlFilePath: string, answers: InviteAnswers): string {
-  const args = ['npx', 'wrangler', 'd1', 'execute', 'DB'];
+  const args = [...getWranglerCommandPrefix(), 'd1', 'execute', 'DB'];
 
   if (answers.targetMode === 'remote') {
     args.push('--remote');
@@ -188,6 +221,24 @@ function buildWranglerCommand(sqlFilePath: string, answers: InviteAnswers): stri
   args.push(`--file=${sqlFilePath}`);
 
   return args.join(' ');
+}
+
+function runWranglerStatement(sql: string, answers: InviteAnswers): string {
+  const tempFilePath = path.join(os.tmpdir(), `create-bootstrap-invite-${Date.now()}-${Math.random()}.sql`);
+  fs.writeFileSync(tempFilePath, `${sql.trim()}\n`);
+
+  try {
+    const command = buildWranglerCommand(tempFilePath, answers);
+    return runWranglerSql(command);
+  } finally {
+    if (fs.existsSync(tempFilePath)) {
+      fs.unlinkSync(tempFilePath);
+    }
+  }
+}
+
+function runWranglerStatements(statements: string[], answers: InviteAnswers): string {
+  return statements.map((statement) => runWranglerStatement(statement, answers)).join('\n');
 }
 
 async function collectAnswers(options: CliOptions): Promise<InviteAnswers> {
@@ -297,7 +348,7 @@ async function run() {
   try {
     const options = parseArgs(process.argv.slice(2));
     const answers = await collectAnswers(options);
-    const { sql, expiresAt } = buildInviteSql(answers);
+    const { statements, sql, expiresAt } = buildInviteSql(answers);
 
     console.log(`📍 目標：${answers.targetMode} / ${answers.env}`);
     console.log(`👤 account: ${answers.accountSlug} (${answers.displayName})`);
@@ -310,20 +361,10 @@ async function run() {
       return;
     }
 
-    const tempFilePath = path.join(os.tmpdir(), `create-bootstrap-invite-${Date.now()}.sql`);
-    fs.writeFileSync(tempFilePath, sql);
-
-    try {
-      const command = buildWranglerCommand(tempFilePath, answers);
-      const output = runWranglerSql(command);
-      console.log('✅ Bootstrap invite 建立完成！\n');
-      console.log(`請把這組邀請碼提供給使用者：${answers.code}\n`);
-      console.log(output);
-    } finally {
-      if (fs.existsSync(tempFilePath)) {
-        fs.unlinkSync(tempFilePath);
-      }
-    }
+    const output = runWranglerStatements(statements, answers);
+    console.log('✅ Bootstrap invite 建立完成！\n');
+    console.log(`請把這組邀請碼提供給使用者：${answers.code}\n`);
+    console.log(output);
   } catch (error) {
     console.error('❌ Bootstrap invite 建立失敗:', error);
     process.exitCode = 1;
