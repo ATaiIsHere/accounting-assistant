@@ -46,9 +46,9 @@
 
 ## 6. Isolation and cross-service behavior
 
-- [ ] 6.1 Ensure one account can access the same ledger from both Telegram and LINE.
-- [ ] 6.2 Ensure categories, pending drafts, and exports are shared only within the same account.
-- [ ] 6.3 Ensure account A cannot query, edit, export, or delete account B's data.
+- [x] 6.1 Ensure one account can access the same ledger from both Telegram and LINE.
+- [x] 6.2 Ensure categories, pending drafts, and exports are shared only within the same account.
+- [x] 6.3 Ensure account A cannot query, edit, export, or delete account B's data.
 - [ ] 6.4 Ensure unauthorized identities on any provider cannot access or mutate any ledger.
 
 ## 7. Tests
@@ -56,9 +56,9 @@
 - [x] 7.1 Add unit coverage for account resolution and normalized event handling in the shared accounting core.
 - [x] 7.2 Add Telegram regression coverage for the refactored adapter path.
 - [x] 7.3 Add adapter-level coverage for the new LINE route.
-- [ ] 7.4 Add coverage proving one account shares a ledger across Telegram and LINE.
-- [ ] 7.5 Add coverage proving two different accounts remain fully isolated.
-- [ ] 7.6 Add coverage proving unsupported group or room events do not enter the shared ledger flow.
+- [x] 7.4 Add coverage proving one account shares a ledger across Telegram and LINE.
+- [x] 7.5 Add coverage proving two different accounts remain fully isolated.
+- [x] 7.6 Add coverage proving unsupported group or room events do not enter the shared ledger flow.
 
 ## 8. Verification
 
@@ -72,4 +72,4 @@
 
 - LINE export currently falls back to a text instruction because LINE has no direct Telegram-style document delivery equivalent in the current adapter.
 - LINE postback flows currently render callback alerts and edit results as visible text replies because LINE has no exact equivalent to Telegram callback alerts or message edits.
-- Cross-provider shared-ledger verification remains deferred to tasks `6.x` and `7.4` until the LINE route exists.
+- Real provider provisioning and end-to-end manual verification still remain for tasks `6.4`, `8.3`, and `8.4`.

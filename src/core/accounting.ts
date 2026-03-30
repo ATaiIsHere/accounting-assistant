@@ -277,7 +277,11 @@ export class AccountingService {
     const expenseId = parseInt(match[1])
     const text = input.replyText
     if (text.includes('刪除') || text.includes('delete') || text === '刪掉') {
-      await this.db.deleteExpense(expenseId, context.accountId)
+      const deleted = await this.db.deleteExpense(expenseId, context.accountId)
+      if (!deleted) {
+        return [{ type: 'reply-text', text: `❌ 找不到指定的帳目 #${expenseId}！` }]
+      }
+
       return [{ type: 'reply-text', text: `🗑️ 帳目 #${expenseId} 已刪除！` }]
     }
 
