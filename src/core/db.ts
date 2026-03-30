@@ -1,5 +1,7 @@
 import type { D1Database } from '@cloudflare/workers-types';
 
+export type CodeStatus = 'pending' | 'used' | 'expired' | 'revoked';
+
 export interface ExpenseData {
   id?: number;
   account_id: number;
@@ -30,14 +32,105 @@ export interface PendingExpense {
   media_reference?: string;
 }
 
+export interface AccountIdentity {
+  id: number;
+  account_id: number;
+  provider: string;
+  external_user_id: string;
+  chat_scope: string;
+  is_active: number;
+  created_at: string;
+}
+
+export interface AccountBootstrapCode {
+  id: number;
+  account_slug: string;
+  display_name: string;
+  code_hash: string;
+  status: CodeStatus;
+  expires_at: string;
+  claimed_account_id: number | null;
+  claimed_provider: string | null;
+  claimed_external_user_id: string | null;
+  created_at: string;
+  claimed_at: string | null;
+}
+
+export interface IdentityPairingCode {
+  id: number;
+  account_id: number;
+  target_provider: string;
+  code_hash: string;
+  status: CodeStatus;
+  expires_at: string;
+  used_at: string | null;
+  used_by_provider: string | null;
+  used_by_external_user_id: string | null;
+  requested_via_provider: string;
+  created_at: string;
+}
+
+export interface BootstrapInviteInput {
+  account_slug: string;
+  display_name: string;
+  code: string;
+  expires_at: string;
+}
+
+export interface PairingCodeInput {
+  account_id: number;
+  target_provider: string;
+  requested_via_provider: string;
+  code: string;
+  expires_at: string;
+}
+
+export type BootstrapInviteConsumeResult =
+  | { status: 'created'; account_id: number }
+  | { status: 'identity-already-linked'; account_id: number }
+  | { status: 'account-slug-conflict' | 'invalid' | 'expired' | 'used' | 'revoked' };
+
+export type PairingCodeConsumeResult =
+  | { status: 'linked'; account_id: number }
+  | { status: 'identity-already-linked'; account_id: number }
+  | { status: 'provider-already-linked'; account_id: number }
+  | { status: 'invalid' | 'expired' | 'used' | 'revoked' };
+
 function buildLegacyUserId(accountId: number, userId?: string): string {
   return userId?.trim() || `account:${accountId}`;
+}
+
+function normalizeProviderName(provider: string): string {
+  return provider.trim().toLowerCase();
+}
+
+function hexEncode(buffer: ArrayBuffer): string {
+  return Array.from(new Uint8Array(buffer))
+    .map((byte) => byte.toString(16).padStart(2, '0'))
+    .join('');
+}
+
+export function normalizeIdentityCode(code: string): string {
+  const normalized = code.trim().toUpperCase().replace(/[^A-Z0-9]/g, '');
+  if (!normalized) {
+    throw new Error('Identity code cannot be empty');
+  }
+
+  return normalized;
+}
+
+export async function hashIdentityCode(code: string): Promise<string> {
+  const normalized = normalizeIdentityCode(code);
+  const payload = new TextEncoder().encode(normalized);
+  const digest = await crypto.subtle.digest('SHA-256', payload);
+  return hexEncode(digest);
 }
 
 export class CoreDB {
   constructor(private db: D1Database) {}
 
   async getAccountIdByIdentity(provider: string, externalUserId: string): Promise<number | null> {
+    const normalizedProvider = normalizeProviderName(provider);
     const result = await this.db.prepare(`
       SELECT a.id as account_id
       FROM account_identities ai
@@ -47,9 +140,50 @@ export class CoreDB {
         AND ai.is_active = 1
         AND a.status = 'active'
       LIMIT 1
-    `).bind(provider, externalUserId).first<{ account_id: number }>();
+    `).bind(normalizedProvider, externalUserId).first<{ account_id: number }>();
 
     return result?.account_id ?? null;
+  }
+
+  async getAccountIdentity(provider: string, externalUserId: string): Promise<AccountIdentity | null> {
+    const normalizedProvider = normalizeProviderName(provider);
+    const result = await this.db.prepare(`
+      SELECT *
+      FROM account_identities
+      WHERE provider = ?
+        AND external_user_id = ?
+      LIMIT 1
+    `).bind(normalizedProvider, externalUserId).first<AccountIdentity>();
+
+    return result ?? null;
+  }
+
+  async getDirectIdentityForAccount(accountId: number, provider: string): Promise<AccountIdentity | null> {
+    const normalizedProvider = normalizeProviderName(provider);
+    const result = await this.db.prepare(`
+      SELECT *
+      FROM account_identities
+      WHERE account_id = ?
+        AND provider = ?
+        AND chat_scope = 'direct'
+        AND is_active = 1
+      LIMIT 1
+    `).bind(accountId, normalizedProvider).first<AccountIdentity>();
+
+    return result ?? null;
+  }
+
+  async addIdentityToAccount(accountId: number, provider: string, externalUserId: string, chatScope = 'direct'): Promise<void> {
+    const normalizedProvider = normalizeProviderName(provider);
+    await this.db.prepare(`
+      INSERT INTO account_identities (
+        account_id,
+        provider,
+        external_user_id,
+        chat_scope,
+        is_active
+      ) VALUES (?, ?, ?, ?, 1)
+    `).bind(accountId, normalizedProvider, externalUserId, chatScope).run();
   }
 
   async ensureLegacyTelegramAccount(externalUserId: string): Promise<number> {
@@ -81,6 +215,262 @@ export class CoreDB {
     }
 
     return accountId;
+  }
+
+  async revokePendingBootstrapInvites(accountSlug: string): Promise<void> {
+    await this.db.prepare(`
+      UPDATE account_bootstrap_codes
+      SET status = 'revoked'
+      WHERE account_slug = ?
+        AND status = 'pending'
+    `).bind(accountSlug).run();
+  }
+
+  async issueBootstrapInvite(input: BootstrapInviteInput): Promise<AccountBootstrapCode> {
+    const codeHash = await hashIdentityCode(input.code);
+
+    await this.db.batch([
+      this.db.prepare(`
+        UPDATE account_bootstrap_codes
+        SET status = 'revoked'
+        WHERE account_slug = ?
+          AND status = 'pending'
+      `).bind(input.account_slug),
+      this.db.prepare(`
+        INSERT INTO account_bootstrap_codes (
+          account_slug,
+          display_name,
+          code_hash,
+          status,
+          expires_at
+        ) VALUES (?, ?, ?, 'pending', ?)
+      `).bind(input.account_slug, input.display_name, codeHash, input.expires_at)
+    ]);
+
+    const invite = await this.getBootstrapInviteByCode(input.code);
+    if (!invite) {
+      throw new Error(`Failed to issue bootstrap invite for ${input.account_slug}`);
+    }
+
+    return invite;
+  }
+
+  async getBootstrapInviteByCode(code: string): Promise<AccountBootstrapCode | null> {
+    const codeHash = await hashIdentityCode(code);
+    const result = await this.db.prepare(`
+      SELECT *
+      FROM account_bootstrap_codes
+      WHERE code_hash = ?
+      LIMIT 1
+    `).bind(codeHash).first<AccountBootstrapCode>();
+
+    return result ?? null;
+  }
+
+  async consumeBootstrapInvite(
+    provider: string,
+    externalUserId: string,
+    code: string,
+    now = new Date().toISOString()
+  ): Promise<BootstrapInviteConsumeResult> {
+    const normalizedProvider = normalizeProviderName(provider);
+    const linkedAccountId = await this.getAccountIdByIdentity(normalizedProvider, externalUserId);
+    if (linkedAccountId) {
+      return { status: 'identity-already-linked', account_id: linkedAccountId };
+    }
+
+    const invite = await this.getBootstrapInviteByCode(code);
+    if (!invite) {
+      return { status: 'invalid' };
+    }
+
+    if (invite.status !== 'pending') {
+      return { status: invite.status };
+    }
+
+    if (invite.expires_at <= now) {
+      await this.db.prepare(`
+        UPDATE account_bootstrap_codes
+        SET status = 'expired'
+        WHERE id = ?
+          AND status = 'pending'
+      `).bind(invite.id).run();
+      return { status: 'expired' };
+    }
+
+    const existingAccount = await this.db.prepare(`
+      SELECT id
+      FROM accounts
+      WHERE slug = ?
+      LIMIT 1
+    `).bind(invite.account_slug).first<{ id: number }>();
+
+    if (existingAccount) {
+      return { status: 'account-slug-conflict' };
+    }
+
+    const { meta } = await this.db.prepare(`
+      INSERT INTO accounts (slug, display_name, status)
+      VALUES (?, ?, 'active')
+    `).bind(invite.account_slug, invite.display_name).run();
+    const accountId = meta.last_row_id as number;
+
+    try {
+      await this.addIdentityToAccount(accountId, normalizedProvider, externalUserId);
+    } catch (error) {
+      await this.db.prepare('DELETE FROM accounts WHERE id = ?').bind(accountId).run();
+
+      const identityAccountId = await this.getAccountIdByIdentity(normalizedProvider, externalUserId);
+      if (identityAccountId) {
+        return { status: 'identity-already-linked', account_id: identityAccountId };
+      }
+
+      throw error;
+    }
+
+    await this.db.prepare(`
+      UPDATE account_bootstrap_codes
+      SET status = 'used',
+          claimed_account_id = ?,
+          claimed_provider = ?,
+          claimed_external_user_id = ?,
+          claimed_at = ?
+      WHERE id = ?
+    `).bind(accountId, normalizedProvider, externalUserId, now, invite.id).run();
+
+    return { status: 'created', account_id: accountId };
+  }
+
+  async revokePendingPairingCodes(accountId: number, targetProvider: string): Promise<void> {
+    const normalizedProvider = normalizeProviderName(targetProvider);
+    await this.db.prepare(`
+      UPDATE identity_pairing_codes
+      SET status = 'revoked'
+      WHERE account_id = ?
+        AND target_provider = ?
+        AND status = 'pending'
+    `).bind(accountId, normalizedProvider).run();
+  }
+
+  async issuePairingCode(input: PairingCodeInput): Promise<IdentityPairingCode> {
+    const normalizedTargetProvider = normalizeProviderName(input.target_provider);
+    const normalizedRequester = normalizeProviderName(input.requested_via_provider);
+    const codeHash = await hashIdentityCode(input.code);
+
+    await this.db.batch([
+      this.db.prepare(`
+        UPDATE identity_pairing_codes
+        SET status = 'revoked'
+        WHERE account_id = ?
+          AND target_provider = ?
+          AND status = 'pending'
+      `).bind(input.account_id, normalizedTargetProvider),
+      this.db.prepare(`
+        INSERT INTO identity_pairing_codes (
+          account_id,
+          target_provider,
+          code_hash,
+          status,
+          expires_at,
+          requested_via_provider
+        ) VALUES (?, ?, ?, 'pending', ?, ?)
+      `).bind(
+        input.account_id,
+        normalizedTargetProvider,
+        codeHash,
+        input.expires_at,
+        normalizedRequester
+      )
+    ]);
+
+    const pairingCode = await this.getPairingCodeByCode(input.code);
+    if (!pairingCode) {
+      throw new Error(`Failed to issue pairing code for account ${input.account_id}`);
+    }
+
+    return pairingCode;
+  }
+
+  async getPairingCodeByCode(code: string): Promise<IdentityPairingCode | null> {
+    const codeHash = await hashIdentityCode(code);
+    const result = await this.db.prepare(`
+      SELECT *
+      FROM identity_pairing_codes
+      WHERE code_hash = ?
+      LIMIT 1
+    `).bind(codeHash).first<IdentityPairingCode>();
+
+    return result ?? null;
+  }
+
+  async consumePairingCode(
+    targetProvider: string,
+    externalUserId: string,
+    code: string,
+    now = new Date().toISOString()
+  ): Promise<PairingCodeConsumeResult> {
+    const normalizedTargetProvider = normalizeProviderName(targetProvider);
+    const linkedAccountId = await this.getAccountIdByIdentity(normalizedTargetProvider, externalUserId);
+    if (linkedAccountId) {
+      return { status: 'identity-already-linked', account_id: linkedAccountId };
+    }
+
+    const pairingCode = await this.getPairingCodeByCode(code);
+    if (!pairingCode || pairingCode.target_provider !== normalizedTargetProvider) {
+      return { status: 'invalid' };
+    }
+
+    if (pairingCode.status !== 'pending') {
+      return { status: pairingCode.status };
+    }
+
+    if (pairingCode.expires_at <= now) {
+      await this.db.prepare(`
+        UPDATE identity_pairing_codes
+        SET status = 'expired'
+        WHERE id = ?
+          AND status = 'pending'
+      `).bind(pairingCode.id).run();
+      return { status: 'expired' };
+    }
+
+    const existingTargetIdentity = await this.getDirectIdentityForAccount(
+      pairingCode.account_id,
+      normalizedTargetProvider
+    );
+    if (existingTargetIdentity) {
+      return { status: 'provider-already-linked', account_id: pairingCode.account_id };
+    }
+
+    try {
+      await this.addIdentityToAccount(pairingCode.account_id, normalizedTargetProvider, externalUserId);
+    } catch (error) {
+      const identityAccountId = await this.getAccountIdByIdentity(normalizedTargetProvider, externalUserId);
+      if (identityAccountId) {
+        return { status: 'identity-already-linked', account_id: identityAccountId };
+      }
+
+      const replacementIdentity = await this.getDirectIdentityForAccount(
+        pairingCode.account_id,
+        normalizedTargetProvider
+      );
+      if (replacementIdentity) {
+        return { status: 'provider-already-linked', account_id: pairingCode.account_id };
+      }
+
+      throw error;
+    }
+
+    await this.db.prepare(`
+      UPDATE identity_pairing_codes
+      SET status = 'used',
+          used_at = ?,
+          used_by_provider = ?,
+          used_by_external_user_id = ?
+      WHERE id = ?
+    `).bind(now, normalizedTargetProvider, externalUserId, pairingCode.id).run();
+
+    return { status: 'linked', account_id: pairingCode.account_id };
   }
 
   async getCategories(accountId: number): Promise<{ id: number; name: string }[]> {

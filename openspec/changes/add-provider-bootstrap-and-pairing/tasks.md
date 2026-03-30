@@ -2,13 +2,13 @@
 
 ## 1. Bootstrap and pairing persistence
 
-- [ ] 1.1 Add an `account_bootstrap_codes` table to `schema.sql` and a new D1 migration.
-- [ ] 1.2 Add an `identity_pairing_codes` table to `schema.sql` and a new D1 migration.
-- [ ] 1.3 Add DB methods to create, revoke, look up, and consume bootstrap invites.
-- [ ] 1.4 Add DB methods to create, revoke, look up, and consume provider pairing codes.
-- [ ] 1.5 Normalize bootstrap invites and pairing codes before hashing so user input is compared consistently.
-- [ ] 1.6 Enforce that one provider external identity cannot be claimed by another account during bootstrap or pairing.
-- [ ] 1.7 Enforce the v1 rule that one account has at most one active direct-chat identity per provider.
+- [x] 1.1 Add an `account_bootstrap_codes` table to `schema.sql` and a new D1 migration.
+- [x] 1.2 Add an `identity_pairing_codes` table to `schema.sql` and a new D1 migration.
+- [x] 1.3 Add DB methods to create, revoke, look up, and consume bootstrap invites.
+- [x] 1.4 Add DB methods to create, revoke, look up, and consume provider pairing codes.
+- [x] 1.5 Normalize bootstrap invites and pairing codes before hashing so user input is compared consistently.
+- [x] 1.6 Enforce that one provider external identity cannot be claimed by another account during bootstrap or pairing.
+- [x] 1.7 Enforce the v1 rule that one account has at most one active direct-chat identity per provider.
 
 ## 2. Bootstrap flow
 
@@ -31,8 +31,8 @@
 
 ## 4. Tests
 
-- [ ] 4.1 Add DB coverage for bootstrap invite creation, redemption, expiry, and single-use behavior.
-- [ ] 4.2 Add DB coverage for provider pairing code creation, replacement, expiry, and single-use behavior.
+- [x] 4.1 Add DB coverage for bootstrap invite creation, redemption, expiry, and single-use behavior.
+- [x] 4.2 Add DB coverage for provider pairing code creation, replacement, expiry, and single-use behavior.
 - [ ] 4.3 Add Telegram and LINE adapter coverage for bootstrap success and failure paths.
 - [ ] 4.4 Add adapter coverage for pair-code issuance from Telegram and LINE.
 - [ ] 4.5 Add adapter coverage for `綁定 <配對碼>` success and failure paths on the target provider.
