@@ -3,8 +3,6 @@
 -- it creates internal account ownership tables and backfills account_id while
 -- leaving legacy user_id ownership columns in place until the application is cut over.
 
-BEGIN TRANSACTION;
-
 CREATE TABLE IF NOT EXISTS accounts (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     slug TEXT NOT NULL UNIQUE,
@@ -114,5 +112,3 @@ SET account_id = (
 )
 WHERE account_id IS NULL
   AND user_id IS NOT NULL;
-
-COMMIT;
