@@ -48,6 +48,15 @@ export type NormalizedMessageInput = {
   replyText?: string | null
 }
 
+type ParseExpenseResult = Awaited<ReturnType<typeof processExpenseWithGemini>>
+type ParseExpenseUpdateResult = Awaited<ReturnType<typeof processExpenseUpdateWithGemini>>
+
+type AccountingDependencies = {
+  parseExpense: typeof processExpenseWithGemini
+  parseExpenseUpdate: typeof processExpenseUpdateWithGemini
+  generateDraftId: () => string
+}
+
 const HELP_TEXT = `
 🤖 **Edge AI 記帳助手使用指南**
 
@@ -72,13 +81,22 @@ const HELP_TEXT = `
 `.trim()
 
 export class AccountingService {
+  private dependencies: AccountingDependencies
+
   constructor(
     private db: CoreDB,
     private options: {
       geminiApiKey: string
       timezoneOffsetMs: number
+    },
+    dependencies?: Partial<AccountingDependencies>
+  ) {
+    this.dependencies = {
+      parseExpense: dependencies?.parseExpense ?? processExpenseWithGemini,
+      parseExpenseUpdate: dependencies?.parseExpenseUpdate ?? processExpenseUpdateWithGemini,
+      generateDraftId: dependencies?.generateDraftId ?? (() => crypto.randomUUID().slice(0, 8))
     }
-  ) {}
+  }
 
   async handleCommand(command: AccountingCommand, context: AccountingRequestContext): Promise<AccountingAction[]> {
     switch (command) {
@@ -143,7 +161,7 @@ export class AccountingService {
     const categories = await this.db.getCategories(context.accountId)
     const categoryNames = categories.map((category) => category.name)
 
-    const parsed = await processExpenseWithGemini(
+    const parsed = await this.dependencies.parseExpense(
       this.options.geminiApiKey,
       categoryNames,
       input.text,
@@ -270,7 +288,7 @@ export class AccountingService {
 
     const categories = await this.db.getCategories(context.accountId)
     const categoryNames = categories.map((category) => category.name)
-    const processResult = await processExpenseUpdateWithGemini(this.options.geminiApiKey, categoryNames, text, oldExpense)
+    const processResult = await this.dependencies.parseExpenseUpdate(this.options.geminiApiKey, categoryNames, text, oldExpense)
 
     if (Object.keys(processResult).length === 0) {
       return [{ type: 'reply-text', text: '無法判斷您要修改的內容。請具體說明要修改哪個欄位（如：金額改為 200）。' }]
@@ -385,7 +403,7 @@ export class AccountingService {
       ]
     }
 
-    const draftId = crypto.randomUUID().slice(0, 8)
+    const draftId = this.dependencies.generateDraftId()
     await this.db.savePendingExpense({
       draft_id: draftId,
       account_id: context.accountId,

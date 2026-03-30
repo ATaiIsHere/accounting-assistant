@@ -32,7 +32,7 @@
 - [x] 4.2 Map Telegram text, photo, reply, and callback events into the shared input model.
 - [x] 4.3 Resolve Telegram `external_user_id` to the correct `account_id`.
 - [x] 4.4 Map shared response intents back into Telegram replies, documents, and inline keyboards.
-- [ ] 4.5 Preserve current Telegram behavior as a regression baseline after the refactor.
+- [x] 4.5 Preserve current Telegram behavior as a regression baseline after the refactor.
 
 ## 5. Add the LINE adapter
 
@@ -54,7 +54,7 @@
 ## 7. Tests
 
 - [x] 7.1 Add unit coverage for account resolution and normalized event handling in the shared accounting core.
-- [ ] 7.2 Add Telegram regression coverage for the refactored adapter path.
+- [x] 7.2 Add Telegram regression coverage for the refactored adapter path.
 - [ ] 7.3 Add adapter-level coverage for the new LINE route.
 - [ ] 7.4 Add coverage proving one account shares a ledger across Telegram and LINE.
 - [ ] 7.5 Add coverage proving two different accounts remain fully isolated.
@@ -62,8 +62,13 @@
 
 ## 8. Verification
 
-- [ ] 8.1 Run the relevant automated tests.
+- [x] 8.1 Run the relevant automated tests.
 - [ ] 8.2 Manually review Telegram behavior for regressions after adapter extraction.
 - [ ] 8.3 Manually verify the same account sees the same ledger from Telegram and LINE.
 - [ ] 8.4 Manually verify different accounts cannot see each other's data.
-- [ ] 8.5 Mark completed items and record any intentionally deferred provider-parity gaps.
+- [x] 8.5 Mark completed items and record any intentionally deferred provider-parity gaps.
+
+## Deferred parity gaps
+
+- LINE adapter behavior remains deferred to tasks `5.x`, including provider-specific reply UX and unsupported room/group handling.
+- Cross-provider shared-ledger verification remains deferred to tasks `6.x` and `7.4` until the LINE route exists.
