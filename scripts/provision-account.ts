@@ -1,7 +1,4 @@
-import { execSync } from 'child_process';
-import * as fs from 'fs';
-import * as os from 'os';
-import * as path from 'path';
+import { execFileSync, execSync } from 'child_process';
 import prompts from 'prompts';
 
 type TargetMode = 'local' | 'remote';
@@ -100,6 +97,10 @@ function sanitizeSlug(value: string): string {
     .replace(/[^a-z0-9_-]+/g, '-')
     .replace(/-+/g, '-')
     .replace(/^-|-$/g, '');
+}
+
+function isTelegramNumericUserId(value: string): boolean {
+  return /^\d+$/.test(value.trim());
 }
 
 function buildIdentityUpsertSql(accountSlug: string, provider: string, externalUserId: string): string {
@@ -205,7 +206,7 @@ function getWranglerCommandPrefix(): string[] {
   throw new Error('找不到 wrangler 執行方式，請先安裝 bunx、npx 或 wrangler。');
 }
 
-function buildWranglerCommand(sqlFilePath: string, answers: ProvisionAnswers): string {
+function buildWranglerCommandArgs(sql: string, answers: ProvisionAnswers): string[] {
   const args = [...getWranglerCommandPrefix(), 'd1', 'execute', 'DB'];
 
   if (answers.targetMode === 'remote') {
@@ -218,23 +219,14 @@ function buildWranglerCommand(sqlFilePath: string, answers: ProvisionAnswers): s
     args.push('-e', 'staging');
   }
 
-  args.push(`--file=${sqlFilePath}`);
+  args.push('--command', sql.trim());
 
-  return args.join(' ');
+  return args;
 }
 
 function runWranglerStatement(sql: string, answers: ProvisionAnswers): string {
-  const tempFilePath = path.join(os.tmpdir(), `provision-account-${Date.now()}-${Math.random()}.sql`);
-  fs.writeFileSync(tempFilePath, `${sql.trim()}\n`);
-
-  try {
-    const command = buildWranglerCommand(tempFilePath, answers);
-    return runWranglerSql(command);
-  } finally {
-    if (fs.existsSync(tempFilePath)) {
-      fs.unlinkSync(tempFilePath);
-    }
-  }
+  const commandArgs = buildWranglerCommandArgs(sql, answers);
+  return runWranglerSql(commandArgs);
 }
 
 function runWranglerStatements(statements: string[], answers: ProvisionAnswers): string {
@@ -281,7 +273,7 @@ async function collectAnswers(options: CliOptions): Promise<ProvisionAnswers> {
       {
         type: hasCliIdentity || options.telegramUserId ? null : 'text',
         name: 'telegramUserId',
-        message: 'Telegram user id（可留空）:'
+        message: 'Telegram 數字 user id（可留空）:'
       },
       {
         type: hasCliIdentity || options.lineUserId ? null : 'text',
@@ -320,6 +312,10 @@ async function collectAnswers(options: CliOptions): Promise<ProvisionAnswers> {
     throw new Error(`Unsupported status: ${status}`);
   }
 
+  if (telegramUserId && !isTelegramNumericUserId(telegramUserId)) {
+    throw new Error('telegram-user-id 必須是 Telegram 的數字 user id，不是 username。');
+  }
+
   return {
     targetMode,
     env,
@@ -331,9 +327,11 @@ async function collectAnswers(options: CliOptions): Promise<ProvisionAnswers> {
   };
 }
 
-function runWranglerSql(command: string): string {
+function runWranglerSql(commandArgs: string[]): string {
+  const [command, ...args] = commandArgs;
+
   try {
-    return execSync(command, {
+    return execFileSync(command, args, {
       encoding: 'utf-8',
       stdio: 'pipe'
     });

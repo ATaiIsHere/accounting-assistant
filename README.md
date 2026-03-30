@@ -80,6 +80,8 @@ npm run provision:account -- --remote --env production --account-slug amy --disp
 npm run bootstrap:invite -- --remote --env production --account-slug amy --display-name "Amy"
 ```
 
+其中 `--telegram-user-id` 要填 Telegram 的數字 user id，不是 `@username`。
+
 建立後腳本會印出邀請碼。使用者可用：
 
 - Telegram：`/create <邀請碼>`

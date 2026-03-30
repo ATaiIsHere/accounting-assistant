@@ -1,8 +1,5 @@
 import { randomUUID, createHash } from 'crypto';
-import { execSync } from 'child_process';
-import * as fs from 'fs';
-import * as os from 'os';
-import * as path from 'path';
+import { execFileSync, execSync } from 'child_process';
 import prompts from 'prompts';
 
 type TargetMode = 'local' | 'remote';
@@ -205,7 +202,7 @@ function getWranglerCommandPrefix(): string[] {
   throw new Error('找不到 wrangler 執行方式，請先安裝 bunx、npx 或 wrangler。');
 }
 
-function buildWranglerCommand(sqlFilePath: string, answers: InviteAnswers): string {
+function buildWranglerCommandArgs(sql: string, answers: InviteAnswers): string[] {
   const args = [...getWranglerCommandPrefix(), 'd1', 'execute', 'DB'];
 
   if (answers.targetMode === 'remote') {
@@ -218,23 +215,14 @@ function buildWranglerCommand(sqlFilePath: string, answers: InviteAnswers): stri
     args.push('-e', 'staging');
   }
 
-  args.push(`--file=${sqlFilePath}`);
+  args.push('--command', sql.trim());
 
-  return args.join(' ');
+  return args;
 }
 
 function runWranglerStatement(sql: string, answers: InviteAnswers): string {
-  const tempFilePath = path.join(os.tmpdir(), `create-bootstrap-invite-${Date.now()}-${Math.random()}.sql`);
-  fs.writeFileSync(tempFilePath, `${sql.trim()}\n`);
-
-  try {
-    const command = buildWranglerCommand(tempFilePath, answers);
-    return runWranglerSql(command);
-  } finally {
-    if (fs.existsSync(tempFilePath)) {
-      fs.unlinkSync(tempFilePath);
-    }
-  }
+  const commandArgs = buildWranglerCommandArgs(sql, answers);
+  return runWranglerSql(commandArgs);
 }
 
 function runWranglerStatements(statements: string[], answers: InviteAnswers): string {
@@ -323,9 +311,11 @@ async function collectAnswers(options: CliOptions): Promise<InviteAnswers> {
   };
 }
 
-function runWranglerSql(command: string): string {
+function runWranglerSql(commandArgs: string[]): string {
+  const [command, ...args] = commandArgs;
+
   try {
-    return execSync(command, {
+    return execFileSync(command, args, {
       encoding: 'utf-8',
       stdio: 'pipe'
     });
