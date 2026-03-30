@@ -75,4 +75,5 @@ Runbook:
 
 - LINE export currently falls back to a text instruction because LINE has no direct Telegram-style document delivery equivalent in the current adapter.
 - LINE postback flows currently render callback alerts and edit results as visible text replies because LINE has no exact equivalent to Telegram callback alerts or message edits.
+- Manual verification showed cross-service usage still requires either pre-provisioned LINE identities or a follow-up self-service linking flow; see change `add-line-pairing-flow`.
 - Real provider provisioning and end-to-end manual verification still remain for tasks `8.3` and `8.4`.
