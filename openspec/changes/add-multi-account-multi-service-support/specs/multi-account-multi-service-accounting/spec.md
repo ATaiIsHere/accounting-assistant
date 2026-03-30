@@ -1,4 +1,4 @@
-# Multi-Service Accounting Specification
+# Multi-Account Multi-Service Accounting Specification
 
 ## ADDED Requirements
 
@@ -13,21 +13,40 @@ The system SHALL expose a shared accounting workflow that is not hardcoded to a 
 - **THEN** the system normalizes the provider event
 - **AND** it executes the same shared accounting workflow
 
-### Requirement: Supported providers shall share one ledger for the same owner
+### Requirement: One account may bind multiple provider identities
 
-The system SHALL store and query accounting data using a logical owner identity that is shared across approved providers, rather than fragmenting data by raw provider user id.
+The system SHALL support one internal account being linked to multiple external provider identities so the same person can access the same private ledger from Telegram and LINE.
 
 #### Scenario: Expense created on Telegram is visible on LINE
 
-- **GIVEN** the authorized user records an expense through Telegram
-- **WHEN** the same owner later asks for a report through LINE
+- **GIVEN** account A is linked to one Telegram identity and one LINE identity
+- **AND** account A records an expense through Telegram
+- **WHEN** account A later asks for a report through LINE
 - **THEN** the report includes the Telegram-created expense
 
 #### Scenario: Category state is shared across providers
 
-- **GIVEN** the authorized user creates or confirms a category-related change on one provider
-- **WHEN** the user interacts from another supported provider
+- **GIVEN** account A creates or confirms a category-related change on one provider
+- **WHEN** account A interacts from another supported provider
 - **THEN** the same category state is visible and used
+
+### Requirement: Different accounts shall remain isolated
+
+The system SHALL isolate bookkeeping data by internal account so one person's expenses, categories, drafts, and exports are never visible to another person even if they use the same providers.
+
+#### Scenario: Two users on the same provider do not share data
+
+- **GIVEN** account A and account B both have Telegram identities
+- **AND** account A has recorded expenses
+- **WHEN** account B asks for a report
+- **THEN** account B does not receive account A's data
+
+#### Scenario: Two users across different providers do not share data
+
+- **GIVEN** account A is linked to Telegram and account B is linked to LINE
+- **AND** account A has recorded expenses
+- **WHEN** account B interacts through LINE
+- **THEN** account B cannot read, edit, export, or delete account A's data
 
 ### Requirement: Existing Telegram behavior shall remain supported after the refactor
 
@@ -47,7 +66,7 @@ The system SHALL preserve the current Telegram bookkeeping capabilities after th
 
 ### Requirement: Provider authorization shall remain isolated and safe
 
-Each supported provider SHALL validate inbound requests and SHALL authorize only configured external identities before allowing access to the shared ledger.
+Each supported provider SHALL validate inbound requests and SHALL authorize only configured external identities before allowing access to the mapped internal account ledger.
 
 #### Scenario: Unauthorized LINE user is rejected
 
@@ -61,3 +80,13 @@ Each supported provider SHALL validate inbound requests and SHALL authorize only
 - **GIVEN** a webhook request with an invalid provider signature
 - **WHEN** the request reaches the provider route
 - **THEN** the system rejects the request before it reaches the shared accounting core
+
+### Requirement: Initial multi-user onboarding shall be admin-managed
+
+The system SHALL support a small fixed set of manually provisioned accounts and linked identities without requiring self-service registration.
+
+#### Scenario: A new known user is provisioned
+
+- **GIVEN** an administrator provisions account C and links that account to one Telegram identity and one LINE identity
+- **WHEN** account C sends valid bookkeeping requests from either linked provider
+- **THEN** the system resolves both identities to account C's private ledger
