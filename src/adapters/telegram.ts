@@ -1,6 +1,7 @@
 import { InlineKeyboard, InputFile } from 'grammy'
 import type { AccountingAction } from '../core/accounting'
 import type { CoreDB } from '../core/db'
+import { buildBootstrapReplyActions } from '../core/onboarding'
 
 export async function resolveTelegramRequestAccount({
   chatType,
@@ -34,6 +35,55 @@ export async function resolveTelegramRequestAccount({
     accountId,
     externalUserId
   }
+}
+
+export async function handleTelegramBootstrapCommand({
+  chatType,
+  externalUserId,
+  bootstrapCode,
+  db,
+  allowedUserId
+}: {
+  chatType?: string | null
+  externalUserId?: string | null
+  bootstrapCode?: string | null
+  db: Pick<CoreDB, 'consumeBootstrapInvite' | 'getAccountIdByIdentity' | 'ensureLegacyTelegramAccount'>
+  allowedUserId?: string
+}): Promise<AccountingAction[] | null> {
+  if (chatType && chatType !== 'private') {
+    return null
+  }
+
+  if (!externalUserId) {
+    return null
+  }
+
+  const trimmedCode = bootstrapCode?.trim()
+  if (!trimmedCode) {
+    return [
+      {
+        type: 'reply-text',
+        text: '請使用 /create <邀請碼> 建立你的帳本。'
+      }
+    ]
+  }
+
+  const existingAccount = await resolveTelegramRequestAccount({
+    chatType,
+    externalUserId,
+    db,
+    allowedUserId
+  })
+  if (existingAccount) {
+    return buildBootstrapReplyActions({
+      status: 'identity-already-linked',
+      account_id: existingAccount.accountId
+    })
+  }
+
+  return buildBootstrapReplyActions(
+    await db.consumeBootstrapInvite('telegram', externalUserId, trimmedCode)
+  )
 }
 
 export async function applyTelegramActions(ctx: any, actions: AccountingAction[]) {

@@ -12,11 +12,11 @@
 
 ## 2. Bootstrap flow
 
-- [ ] 2.1 Define provider-specific bootstrap commands for supported providers, starting with Telegram and LINE direct chats.
-- [ ] 2.2 Accept bootstrap only from supported direct-chat scopes.
-- [ ] 2.3 Create a new account and the first provider identity from a valid bootstrap invite.
-- [ ] 2.4 Return Traditional Chinese success and failure copy for bootstrap flows.
-- [ ] 2.5 Preserve admin provisioning as an alternative bootstrap path.
+- [x] 2.1 Define provider-specific bootstrap commands for supported providers, starting with Telegram and LINE direct chats.
+- [x] 2.2 Accept bootstrap only from supported direct-chat scopes.
+- [x] 2.3 Create a new account and the first provider identity from a valid bootstrap invite.
+- [x] 2.4 Return Traditional Chinese success and failure copy for bootstrap flows.
+- [x] 2.5 Preserve admin provisioning as an alternative bootstrap path.
 
 ## 3. Provider-neutral pairing flow
 
@@ -33,7 +33,7 @@
 
 - [x] 4.1 Add DB coverage for bootstrap invite creation, redemption, expiry, and single-use behavior.
 - [x] 4.2 Add DB coverage for provider pairing code creation, replacement, expiry, and single-use behavior.
-- [ ] 4.3 Add Telegram and LINE adapter coverage for bootstrap success and failure paths.
+- [x] 4.3 Add Telegram and LINE adapter coverage for bootstrap success and failure paths.
 - [ ] 4.4 Add adapter coverage for pair-code issuance from Telegram and LINE.
 - [ ] 4.5 Add adapter coverage for `綁定 <配對碼>` success and failure paths on the target provider.
 - [ ] 4.6 Add isolation coverage proving a provider identity already linked to account B cannot be claimed by account A.

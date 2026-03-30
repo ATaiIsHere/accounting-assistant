@@ -1,7 +1,7 @@
 import { Hono } from 'hono'
 import { Bot } from 'grammy'
 import { handleLineEvent, type LineWebhookPayload, verifyLineSignature } from './adapters/line'
-import { applyTelegramActions, resolveTelegramRequestAccount } from './adapters/telegram'
+import { applyTelegramActions, handleTelegramBootstrapCommand, resolveTelegramRequestAccount } from './adapters/telegram'
 import { CoreDB } from './core/db'
 import { AccountingService } from './core/accounting'
 import type { D1Database } from '@cloudflare/workers-types'
@@ -143,6 +143,21 @@ app.post('/webhook/telegram', async (c) => {
     timezoneOffsetMs: 8 * 60 * 60 * 1000
   })
   
+  bot.command('create', async (ctx) => {
+    const actions = await handleTelegramBootstrapCommand({
+      chatType: ctx.chat?.type,
+      externalUserId: ctx.from?.id?.toString(),
+      bootstrapCode: typeof ctx.match === 'string' ? ctx.match : null,
+      db,
+      allowedUserId: c.env.ALLOWED_USER_ID
+    })
+    if (!actions) {
+      return
+    }
+
+    await applyTelegramActions(ctx, actions)
+  })
+
   // 1. Authentication
   bot.use(async (ctx, next) => {
     const account = await resolveTelegramRequestAccount({

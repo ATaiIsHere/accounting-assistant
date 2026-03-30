@@ -1,5 +1,10 @@
 import { describe, expect, it, vi } from 'vitest'
-import { buildLineReplyMessages, handleLineEvent, verifyLineSignature } from '../src/adapters/line'
+import {
+  buildLineReplyMessages,
+  handleLineEvent,
+  parseLineBootstrapCommand,
+  verifyLineSignature
+} from '../src/adapters/line'
 
 async function signLineBody(channelSecret: string, rawBody: string): Promise<string> {
   const key = await crypto.subtle.importKey(
@@ -61,9 +66,25 @@ describe('LINE adapter', () => {
     })
   })
 
+  it('parses LINE bootstrap commands with and without invite codes', () => {
+    expect(parseLineBootstrapCommand('建立帳本 CODE-123')).toEqual({
+      matched: true,
+      code: 'CODE-123'
+    })
+    expect(parseLineBootstrapCommand('建立帳本')).toEqual({
+      matched: true,
+      code: null
+    })
+    expect(parseLineBootstrapCommand('/summary')).toEqual({
+      matched: false,
+      code: null
+    })
+  })
+
   it('delegates text commands through the shared accounting service and replies to LINE', async () => {
     const db = {
-      getAccountIdByIdentity: vi.fn().mockResolvedValue(11)
+      getAccountIdByIdentity: vi.fn().mockResolvedValue(11),
+      consumeBootstrapInvite: vi.fn()
     }
     const accounting = {
       handleCommand: vi.fn().mockResolvedValue([{ type: 'reply-text', text: 'summary-ok' }]),
@@ -114,7 +135,8 @@ describe('LINE adapter', () => {
 
   it('replies with an authorization notice when the LINE identity is not provisioned', async () => {
     const db = {
-      getAccountIdByIdentity: vi.fn().mockResolvedValue(null)
+      getAccountIdByIdentity: vi.fn().mockResolvedValue(null),
+      consumeBootstrapInvite: vi.fn()
     }
     const accounting = {
       handleCommand: vi.fn(),
@@ -149,9 +171,110 @@ describe('LINE adapter', () => {
     ])
   })
 
+  it('bootstraps a LINE account from a valid invite and returns usage guidance for missing codes', async () => {
+    const db = {
+      getAccountIdByIdentity: vi.fn().mockResolvedValue(null),
+      consumeBootstrapInvite: vi
+        .fn()
+        .mockResolvedValueOnce({ status: 'created', account_id: 21 })
+        .mockResolvedValueOnce({ status: 'expired' })
+    }
+    const accounting = {
+      handleCommand: vi.fn(),
+      handleMessage: vi.fn(),
+      handleCallback: vi.fn()
+    }
+    const fetchImpl = vi.fn().mockResolvedValue(new Response(null, { status: 200 }))
+
+    await expect(
+      handleLineEvent({
+        event: {
+          type: 'message',
+          replyToken: 'reply-token',
+          source: { type: 'user', userId: 'U-bootstrap' },
+          message: {
+            id: 'msg-bootstrap-1',
+            type: 'text',
+            text: '建立帳本 INV-123'
+          }
+        },
+        db: db as any,
+        accounting: accounting as any,
+        lineAccessToken: 'line-token',
+        fetchImpl
+      })
+    ).resolves.toBe('replied')
+
+    await expect(
+      handleLineEvent({
+        event: {
+          type: 'message',
+          replyToken: 'reply-token',
+          source: { type: 'user', userId: 'U-bootstrap' },
+          message: {
+            id: 'msg-bootstrap-2',
+            type: 'text',
+            text: '建立帳本'
+          }
+        },
+        db: db as any,
+        accounting: accounting as any,
+        lineAccessToken: 'line-token',
+        fetchImpl
+      })
+    ).resolves.toBe('replied')
+
+    await expect(
+      handleLineEvent({
+        event: {
+          type: 'message',
+          replyToken: 'reply-token',
+          source: { type: 'user', userId: 'U-bootstrap' },
+          message: {
+            id: 'msg-bootstrap-3',
+            type: 'text',
+            text: '建立帳本 EXPIRED'
+          }
+        },
+        db: db as any,
+        accounting: accounting as any,
+        lineAccessToken: 'line-token',
+        fetchImpl
+      })
+    ).resolves.toBe('replied')
+
+    expect(db.consumeBootstrapInvite).toHaveBeenNthCalledWith(1, 'line', 'U-bootstrap', 'INV-123')
+    expect(db.consumeBootstrapInvite).toHaveBeenNthCalledWith(2, 'line', 'U-bootstrap', 'EXPIRED')
+
+    const successBody = JSON.parse(fetchImpl.mock.calls[0][1]?.body as string)
+    expect(successBody.messages).toEqual([
+      {
+        type: 'text',
+        text: '✅ 已建立你的私人帳本！\n現在可以直接輸入「午餐 120」開始記帳。\n之後如果想綁定其他通訊軟體，再使用配對功能即可。'
+      }
+    ])
+
+    const usageBody = JSON.parse(fetchImpl.mock.calls[1][1]?.body as string)
+    expect(usageBody.messages).toEqual([
+      {
+        type: 'text',
+        text: '請使用「建立帳本 <邀請碼>」建立你的帳本。'
+      }
+    ])
+
+    const expiredBody = JSON.parse(fetchImpl.mock.calls[2][1]?.body as string)
+    expect(expiredBody.messages).toEqual([
+      {
+        type: 'text',
+        text: '⌛ 邀請碼已過期，請向管理者索取新的建立帳本邀請碼。'
+      }
+    ])
+  })
+
   it('fetches LINE image content before sending it into the shared service', async () => {
     const db = {
-      getAccountIdByIdentity: vi.fn().mockResolvedValue(12)
+      getAccountIdByIdentity: vi.fn().mockResolvedValue(12),
+      consumeBootstrapInvite: vi.fn()
     }
     const accounting = {
       handleCommand: vi.fn(),
@@ -209,7 +332,8 @@ describe('LINE adapter', () => {
 
   it('ignores unsupported group events and turns postback alerts into visible replies', async () => {
     const db = {
-      getAccountIdByIdentity: vi.fn().mockResolvedValue(13)
+      getAccountIdByIdentity: vi.fn().mockResolvedValue(13),
+      consumeBootstrapInvite: vi.fn()
     }
     const accounting = {
       handleCommand: vi.fn(),

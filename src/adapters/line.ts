@@ -1,5 +1,6 @@
 import type { AccountingAction, AccountingCommand, AccountingService } from '../core/accounting'
 import type { CoreDB } from '../core/db'
+import { buildBootstrapReplyActions } from '../core/onboarding'
 
 const LINE_REPLY_API_URL = 'https://api.line.me/v2/bot/message/reply'
 const LINE_MESSAGE_CONTENT_API_BASE = 'https://api-data.line.me/v2/bot/message'
@@ -79,6 +80,23 @@ function extractAccountingCommand(text: string): AccountingCommand | null {
       return 'export'
     default:
       return null
+  }
+}
+
+export function parseLineBootstrapCommand(text: string): { matched: boolean; code: string | null } {
+  const normalized = text.trim()
+  if (normalized === '建立帳本') {
+    return { matched: true, code: null }
+  }
+
+  const match = normalized.match(/^建立帳本\s+(.+)$/u)
+  if (!match) {
+    return { matched: false, code: null }
+  }
+
+  return {
+    matched: true,
+    code: match[1].trim() || null
   }
 }
 
@@ -219,7 +237,7 @@ export async function handleLineEvent({
   fetchImpl = fetch
 }: {
   event: LineWebhookEvent
-  db: Pick<CoreDB, 'getAccountIdByIdentity'>
+  db: Pick<CoreDB, 'consumeBootstrapInvite' | 'getAccountIdByIdentity'>
   accounting: Pick<AccountingService, 'handleCommand' | 'handleMessage' | 'handleCallback'>
   lineAccessToken: string
   fetchImpl?: LineFetch
@@ -234,14 +252,28 @@ export async function handleLineEvent({
 
   const accountId = await db.getAccountIdByIdentity('line', externalUserId)
   if (!accountId) {
+    if (event.type === 'message' && event.message?.type === 'text') {
+      const bootstrapCommand = parseLineBootstrapCommand(event.message.text || '')
+      if (bootstrapCommand.matched) {
+        const actions = bootstrapCommand.code
+          ? buildBootstrapReplyActions(
+              await db.consumeBootstrapInvite('line', externalUserId, bootstrapCommand.code)
+            )
+          : [{ type: 'reply-text', text: '請使用「建立帳本 <邀請碼>」建立你的帳本。' } satisfies AccountingAction]
+
+        await replyLineMessages(lineAccessToken, replyToken, actions, fetchImpl)
+        return 'replied'
+      }
+    }
+
     await replyLineMessages(
       lineAccessToken,
       replyToken,
       [{ type: 'reply-text', text: '這個 LINE 帳號尚未授權，請聯繫管理者綁定。' }],
       fetchImpl
     )
-    return 'replied'
-  }
+      return 'replied'
+    }
 
   const context = {
     accountId,

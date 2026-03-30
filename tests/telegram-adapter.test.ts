@@ -1,5 +1,9 @@
 import { describe, expect, it, vi } from 'vitest'
-import { applyTelegramActions, resolveTelegramRequestAccount } from '../src/adapters/telegram'
+import {
+  applyTelegramActions,
+  handleTelegramBootstrapCommand,
+  resolveTelegramRequestAccount
+} from '../src/adapters/telegram'
 
 describe('applyTelegramActions', () => {
   it('maps shared reply/edit/callback actions onto telegram context methods', async () => {
@@ -107,5 +111,78 @@ describe('resolveTelegramRequestAccount', () => {
 
     expect(db.getAccountIdByIdentity).toHaveBeenCalledTimes(1)
     expect(db.ensureLegacyTelegramAccount).not.toHaveBeenCalled()
+  })
+})
+
+describe('handleTelegramBootstrapCommand', () => {
+  it('returns usage text when the invite code is missing', async () => {
+    const actions = await handleTelegramBootstrapCommand({
+      chatType: 'private',
+      externalUserId: '123',
+      bootstrapCode: '',
+      db: {
+        getAccountIdByIdentity: vi.fn().mockResolvedValue(null),
+        ensureLegacyTelegramAccount: vi.fn(),
+        consumeBootstrapInvite: vi.fn()
+      } as any
+    })
+
+    expect(actions).toEqual([
+      {
+        type: 'reply-text',
+        text: '請使用 /create <邀請碼> 建立你的帳本。'
+      }
+    ])
+  })
+
+  it('creates a telegram account from a valid bootstrap invite', async () => {
+    const db = {
+      getAccountIdByIdentity: vi.fn().mockResolvedValue(null),
+      ensureLegacyTelegramAccount: vi.fn(),
+      consumeBootstrapInvite: vi.fn().mockResolvedValue({
+        status: 'created',
+        account_id: 42
+      })
+    }
+
+    const actions = await handleTelegramBootstrapCommand({
+      chatType: 'private',
+      externalUserId: '123',
+      bootstrapCode: 'INV-123',
+      db: db as any
+    })
+
+    expect(db.consumeBootstrapInvite).toHaveBeenCalledWith('telegram', '123', 'INV-123')
+    expect(actions).toEqual([
+      expect.objectContaining({
+        type: 'reply-text',
+        text: expect.stringContaining('已建立你的私人帳本')
+      })
+    ])
+  })
+
+  it('treats an already-linked telegram identity as initialized before consuming an invite', async () => {
+    const db = {
+      getAccountIdByIdentity: vi.fn().mockResolvedValue(null),
+      ensureLegacyTelegramAccount: vi.fn().mockResolvedValue(34),
+      consumeBootstrapInvite: vi.fn()
+    }
+
+    const actions = await handleTelegramBootstrapCommand({
+      chatType: 'private',
+      externalUserId: '999',
+      bootstrapCode: 'INV-999',
+      db: db as any,
+      allowedUserId: '999'
+    })
+
+    expect(db.ensureLegacyTelegramAccount).toHaveBeenCalledWith('999')
+    expect(db.consumeBootstrapInvite).not.toHaveBeenCalled()
+    expect(actions).toEqual([
+      {
+        type: 'reply-text',
+        text: 'ℹ️ 你已經建立過帳本了，可以直接開始記帳。'
+      }
+    ])
   })
 })
