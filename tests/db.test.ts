@@ -143,6 +143,9 @@ test('CoreDB dynamic Query', async () => {
   await db.insertExpense({ account_id: accountId, user_id: userId, date: '2026-03-02', item: 'Cola', amount: 30, category_id: cid });
 
   const report = await db.queryExpenses(accountId, { start_date: '2026-03-01', end_date: '2026-03-31' });
+  expect(report).toContain('📋 2026-03-01 至 2026-03-31 查詢結果：\n');
+  expect(report).toContain('\n📊 分類統計：\n');
+  expect(report).not.toContain('\\n');
   expect(report).toContain('總計：$80');
 });
 

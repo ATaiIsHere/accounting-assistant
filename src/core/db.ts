@@ -664,14 +664,14 @@ export class CoreDB {
       `
       const groups = await this.db.prepare(groupSql).bind(...params).all<{category_name: string, subtotal: number}>()
       if (groups.results && groups.results.length > 0) {
-         groupReport = '\\n\\n📊 分類統計：\\n' + groups.results.map((g: any) => `- ${g.category_name || '未分類'}: $${g.subtotal}`).join('\\n')
+         groupReport = '\n\n📊 分類統計：\n' + groups.results.map((g: any) => `- ${g.category_name || '未分類'}: $${g.subtotal}`).join('\n')
       }
     }
 
-    let title = '📋 查詢結果：\\n'
-    if (filters.start_date && filters.end_date && filters.start_date === filters.end_date) title = `📋 ${filters.start_date} ${categoryPrefix}查詢結果：\\n`
-    else if (filters.start_date || filters.end_date) title = `📋 ${filters.start_date || '?'} 至 ${filters.end_date || '?'} ${categoryPrefix}查詢結果：\\n`
-    else if (filters.category_name) title = `📋 所有時間 ${categoryPrefix}查詢結果：\\n`
+    let title = '📋 查詢結果：\n'
+    if (filters.start_date && filters.end_date && filters.start_date === filters.end_date) title = `📋 ${filters.start_date} ${categoryPrefix}查詢結果：\n`
+    else if (filters.start_date || filters.end_date) title = `📋 ${filters.start_date || '?'} 至 ${filters.end_date || '?'} ${categoryPrefix}查詢結果：\n`
+    else if (filters.category_name) title = `📋 所有時間 ${categoryPrefix}查詢結果：\n`
 
     return `${title}共 ${count} 筆消費，總計：$${total}${groupReport}`
   }

@@ -67,6 +67,13 @@ const HELP_TEXT = `
 /categories - 列出建立的所有分類
 /export - 將完整帳目匯出為 CSV 檔案
 
+🔐 **建立帳本與配對**
+- Telegram 建立帳本：/create <邀請碼>
+- LINE 建立帳本：建立帳本 <邀請碼>
+- Telegram 配對：/pair <telegram|line>
+- LINE 配對：配對 <telegram|line>
+- 綁定目標服務：綁定 <配對碼>
+
 💬 **自然語言記帳 & 查詢**
 - **記帳**：直接輸入「午餐 150」、「搭車 50」，或傳送發票照片。
 - **查詢**：直接輸入「這個月吃飯花多少？」、「今天花了多少錢？」。

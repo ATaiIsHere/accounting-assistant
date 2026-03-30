@@ -65,6 +65,25 @@ function createService(overrides: Partial<Record<string, any>> = {}) {
 }
 
 describe('AccountingService', () => {
+  it('includes bootstrap and pairing guidance in help output', async () => {
+    const { service } = createService()
+
+    const actions = await service.handleCommand('help', {
+      accountId: 1,
+      ownerRef: '123'
+    })
+
+    expect(actions).toEqual([
+      expect.objectContaining({
+        type: 'reply-text',
+        text: expect.stringContaining('/pair <telegram|line>')
+      })
+    ])
+    expect((actions[0] as any).text).toContain('/create <邀請碼>')
+    expect((actions[0] as any).text).toContain('建立帳本 <邀請碼>')
+    expect((actions[0] as any).text).toContain('綁定 <配對碼>')
+  })
+
   it('returns document action for export command', async () => {
     const { service } = createService()
 
