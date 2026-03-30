@@ -1,7 +1,7 @@
 import { Hono } from 'hono'
 import { Bot } from 'grammy'
 import { handleLineEvent, type LineWebhookPayload, verifyLineSignature } from './adapters/line'
-import { applyTelegramActions } from './adapters/telegram'
+import { applyTelegramActions, resolveTelegramRequestAccount } from './adapters/telegram'
 import { CoreDB } from './core/db'
 import { AccountingService } from './core/accounting'
 import type { D1Database } from '@cloudflare/workers-types'
@@ -145,19 +145,15 @@ app.post('/webhook/telegram', async (c) => {
   
   // 1. Authentication
   bot.use(async (ctx, next) => {
-    if (ctx.chat?.type && ctx.chat.type !== 'private') return
+    const account = await resolveTelegramRequestAccount({
+      chatType: ctx.chat?.type,
+      externalUserId: ctx.from?.id?.toString(),
+      db,
+      allowedUserId: c.env.ALLOWED_USER_ID
+    })
+    if (!account) return
 
-    const externalUserId = ctx.from?.id?.toString()
-    if (!externalUserId) return
-
-    let accountId = await db.getAccountIdByIdentity('telegram', externalUserId)
-    if (!accountId && c.env.ALLOWED_USER_ID && externalUserId === c.env.ALLOWED_USER_ID) {
-      accountId = await db.ensureLegacyTelegramAccount(externalUserId)
-    }
-
-    if (!accountId) return
-
-    setRequestAccount(ctx, { accountId, externalUserId })
+    setRequestAccount(ctx, account)
     await next()
   })
 

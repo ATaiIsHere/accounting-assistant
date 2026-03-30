@@ -49,7 +49,7 @@
 - [x] 6.1 Ensure one account can access the same ledger from both Telegram and LINE.
 - [x] 6.2 Ensure categories, pending drafts, and exports are shared only within the same account.
 - [x] 6.3 Ensure account A cannot query, edit, export, or delete account B's data.
-- [ ] 6.4 Ensure unauthorized identities on any provider cannot access or mutate any ledger.
+- [x] 6.4 Ensure unauthorized identities on any provider cannot access or mutate any ledger.
 
 ## 7. Tests
 
@@ -72,4 +72,4 @@
 
 - LINE export currently falls back to a text instruction because LINE has no direct Telegram-style document delivery equivalent in the current adapter.
 - LINE postback flows currently render callback alerts and edit results as visible text replies because LINE has no exact equivalent to Telegram callback alerts or message edits.
-- Real provider provisioning and end-to-end manual verification still remain for tasks `6.4`, `8.3`, and `8.4`.
+- Real provider provisioning and end-to-end manual verification still remain for tasks `8.3` and `8.4`.
