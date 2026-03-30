@@ -1,5 +1,6 @@
 import { Hono } from 'hono'
 import { Bot } from 'grammy'
+import { handleLineEvent, type LineWebhookPayload, verifyLineSignature } from './adapters/line'
 import { applyTelegramActions } from './adapters/telegram'
 import { CoreDB } from './core/db'
 import { AccountingService } from './core/accounting'
@@ -9,6 +10,8 @@ export type Bindings = {
   TELEGRAM_BOT_TOKEN: string
   GEMINI_API_KEY: string
   ALLOWED_USER_ID?: string
+  LINE_CHANNEL_ACCESS_TOKEN?: string
+  LINE_CHANNEL_SECRET?: string
   DB: D1Database
 }
 
@@ -249,6 +252,46 @@ app.post('/webhook/telegram', async (c) => {
   // 5. Cloudflare Workers safe background execution pattern
   const update = await c.req.json()
   c.executionCtx.waitUntil(bot.handleUpdate(update))
+  return c.json({ ok: true })
+})
+
+app.post('/webhook/line', async (c) => {
+  if (!c.env.LINE_CHANNEL_ACCESS_TOKEN || !c.env.LINE_CHANNEL_SECRET) {
+    return c.text('LINE is not configured', 503)
+  }
+
+  const rawBody = await c.req.text()
+  const isValidSignature = await verifyLineSignature(
+    c.env.LINE_CHANNEL_SECRET,
+    rawBody,
+    c.req.header('x-line-signature')
+  )
+  if (!isValidSignature) {
+    return c.text('Unauthorized', 401)
+  }
+
+  const payload = JSON.parse(rawBody) as LineWebhookPayload
+  const db = new CoreDB(c.env.DB)
+  const accounting = new AccountingService(db, {
+    geminiApiKey: c.env.GEMINI_API_KEY,
+    timezoneOffsetMs: 8 * 60 * 60 * 1000
+  })
+
+  c.executionCtx.waitUntil(
+    Promise.all(
+      (payload.events || []).map((event) =>
+        handleLineEvent({
+          event,
+          db,
+          accounting,
+          lineAccessToken: c.env.LINE_CHANNEL_ACCESS_TOKEN!
+        }).catch((error) => {
+          console.error('Failed to handle LINE event', error)
+        })
+      )
+    )
+  )
+
   return c.json({ ok: true })
 })
 

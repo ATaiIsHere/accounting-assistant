@@ -28,7 +28,7 @@
 
 ## 4. Refactor Telegram into an adapter
 
-- [ ] 4.1 Keep `/webhook/telegram` as the Telegram transport entrypoint.
+- [x] 4.1 Keep `/webhook/telegram` as the Telegram transport entrypoint.
 - [x] 4.2 Map Telegram text, photo, reply, and callback events into the shared input model.
 - [x] 4.3 Resolve Telegram `external_user_id` to the correct `account_id`.
 - [x] 4.4 Map shared response intents back into Telegram replies, documents, and inline keyboards.
@@ -36,13 +36,13 @@
 
 ## 5. Add the LINE adapter
 
-- [ ] 5.1 Add a new webhook route for LINE.
-- [ ] 5.2 Validate LINE signatures and credentials independently from Telegram.
-- [ ] 5.3 Map only LINE one-on-one text and image events into the shared input model for v1.
-- [ ] 5.4 Resolve LINE `external_user_id` to the correct `account_id`.
-- [ ] 5.5 Implement LINE-compatible reply flows for summaries, exports, confirmations, and errors.
-- [ ] 5.6 Provide a safe fallback when a Telegram-specific interaction pattern has no exact LINE equivalent.
-- [ ] 5.7 Ignore or reject unsupported LINE group and room events safely.
+- [x] 5.1 Add a new webhook route for LINE.
+- [x] 5.2 Validate LINE signatures and credentials independently from Telegram.
+- [x] 5.3 Map only LINE one-on-one text and image events into the shared input model for v1.
+- [x] 5.4 Resolve LINE `external_user_id` to the correct `account_id`.
+- [x] 5.5 Implement LINE-compatible reply flows for summaries, exports, confirmations, and errors.
+- [x] 5.6 Provide a safe fallback when a Telegram-specific interaction pattern has no exact LINE equivalent.
+- [x] 5.7 Ignore or reject unsupported LINE group and room events safely.
 
 ## 6. Isolation and cross-service behavior
 
@@ -55,7 +55,7 @@
 
 - [x] 7.1 Add unit coverage for account resolution and normalized event handling in the shared accounting core.
 - [x] 7.2 Add Telegram regression coverage for the refactored adapter path.
-- [ ] 7.3 Add adapter-level coverage for the new LINE route.
+- [x] 7.3 Add adapter-level coverage for the new LINE route.
 - [ ] 7.4 Add coverage proving one account shares a ledger across Telegram and LINE.
 - [ ] 7.5 Add coverage proving two different accounts remain fully isolated.
 - [ ] 7.6 Add coverage proving unsupported group or room events do not enter the shared ledger flow.
@@ -70,5 +70,6 @@
 
 ## Deferred parity gaps
 
-- LINE adapter behavior remains deferred to tasks `5.x`, including provider-specific reply UX and unsupported room/group handling.
+- LINE export currently falls back to a text instruction because LINE has no direct Telegram-style document delivery equivalent in the current adapter.
+- LINE postback flows currently render callback alerts and edit results as visible text replies because LINE has no exact equivalent to Telegram callback alerts or message edits.
 - Cross-provider shared-ledger verification remains deferred to tasks `6.x` and `7.4` until the LINE route exists.
