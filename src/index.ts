@@ -8,6 +8,7 @@ export type Bindings = {
   TELEGRAM_BOT_TOKEN: string
   GEMINI_API_KEY: string
   ALLOWED_USER_ID: string
+  DASHBOARD_PROXY_SECRET: string
   DB: D1Database
 }
 
@@ -21,6 +22,20 @@ app.get('/', (c) => c.text('Accounting Assistant Webhook is running!'))
 // 在暫時气候，我們用簡張輕量宣告式檢查: 檢查 header 是否存在 + sub (email) 是否匹配 ALLOWED_USER_ID
 // Production 尤 應运用 jose verifyJWT 進行完整公鑰驗證
 const apiAuth = async (c: any, next: any) => {
+  const expectedSecret = c.env.DASHBOARD_PROXY_SECRET
+  const providedSecret = c.req.header('X-Dashboard-Proxy-Secret')
+
+  if (!expectedSecret) {
+    return c.json({ error: 'Dashboard proxy secret is not configured' }, 500)
+  }
+
+  if (providedSecret !== expectedSecret) {
+    return c.json({ error: 'Unauthorized' }, 401)
+  }
+
+  await next()
+  return
+
   const jwt = c.req.header('Cf-Access-Jwt-Assertion')
   // No JWT → reject (protect from direct curl access)
   if (!jwt) return c.json({ error: 'Unauthorized' }, 401)
@@ -35,7 +50,7 @@ api.use('*', apiAuth)
 api.get('/expenses', async (c) => {
   const db = new CoreDB(c.env.DB)
   const { start, end, category } = c.req.query()
-  const expenses = await db.queryExpenses(c.env.ALLOWED_USER_ID, {
+  const expenses = await db.listExpenses(c.env.ALLOWED_USER_ID, {
     start_date: start,
     end_date: end,
     category_name: category
@@ -55,14 +70,11 @@ api.delete('/expenses/:id', async (c) => {
 api.get('/summary', async (c) => {
   const db = new CoreDB(c.env.DB)
   const { year, month } = c.req.query()
-  const prefix = `${year}-${String(month).padStart(2, '0')}`
-  const expenses = await db.queryExpenses(c.env.ALLOWED_USER_ID, { start_date: `${prefix}-01`, end_date: `${prefix}-31` })
-  // Group by category on the fly
-  const grouped: Record<string, number> = {}
-  for (const e of (expenses as any[])) {
-    grouped[e.category_name] = (grouped[e.category_name] ?? 0) + e.amount
-  }
-  const result = Object.entries(grouped).map(([category_name, total]) => ({ category_name, total }))
+  const result = await db.getCategorySummaryByMonth(
+    c.env.ALLOWED_USER_ID,
+    year ?? '',
+    month ?? ''
+  )
   return c.json(result)
 })
 

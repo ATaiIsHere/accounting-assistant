@@ -1,0 +1,117 @@
+@import url("https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=Noto+Sans+TC:wght@400;500;700&display=swap");
+@import "tailwindcss";
+
+:root {
+  color: #f8fafc;
+  background:
+    radial-gradient(circle at top left, rgba(20, 184, 166, 0.18), transparent 28%),
+    radial-gradient(circle at top right, rgba(249, 115, 22, 0.18), transparent 32%),
+    linear-gradient(180deg, #020617 0%, #0f172a 100%);
+  font-family: "Space Grotesk", "Noto Sans TC", sans-serif;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  min-height: 100%;
+}
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  color: #e2e8f0;
+  background:
+    radial-gradient(circle at top left, rgba(20, 184, 166, 0.18), transparent 28%),
+    radial-gradient(circle at top right, rgba(249, 115, 22, 0.18), transparent 32%),
+    linear-gradient(180deg, #020617 0%, #0f172a 100%);
+}
+
+button,
+input,
+select {
+  font: inherit;
+}
+
+.glass-panel {
+  border: 1px solid rgba(255, 255, 255, 0.09);
+  background:
+    linear-gradient(180deg, rgba(15, 23, 42, 0.9), rgba(15, 23, 42, 0.74)),
+    rgba(15, 23, 42, 0.65);
+  border-radius: 28px;
+  box-shadow: 0 18px 60px rgba(2, 6, 23, 0.35);
+  backdrop-filter: blur(16px);
+}
+
+.nav-chip {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  border-radius: 22px;
+  border: 1px solid transparent;
+  background: transparent;
+  padding: 1rem 1.1rem;
+  text-align: left;
+  transition:
+    background-color 180ms ease,
+    border-color 180ms ease,
+    transform 180ms ease;
+}
+
+.nav-chip:hover {
+  border-color: rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.04);
+  transform: translateY(-1px);
+}
+
+.nav-chip-active {
+  border-color: rgba(20, 184, 166, 0.35);
+  background:
+    linear-gradient(135deg, rgba(20, 184, 166, 0.18), rgba(249, 115, 22, 0.12)),
+    rgba(255, 255, 255, 0.04);
+}
+
+.field-input {
+  border: 1px solid rgba(148, 163, 184, 0.22);
+  border-radius: 16px;
+  background: rgba(15, 23, 42, 0.75);
+  padding: 0.8rem 0.95rem;
+  color: #f8fafc;
+  outline: none;
+  transition:
+    border-color 180ms ease,
+    box-shadow 180ms ease;
+}
+
+.field-input:focus {
+  border-color: rgba(20, 184, 166, 0.8);
+  box-shadow: 0 0 0 3px rgba(20, 184, 166, 0.18);
+}
+
+.action-button {
+  border: 0;
+  border-radius: 18px;
+  padding: 0.9rem 1.15rem;
+  background: linear-gradient(135deg, #14b8a6, #f97316);
+  color: white;
+  font-weight: 600;
+  cursor: pointer;
+  transition:
+    transform 180ms ease,
+    box-shadow 180ms ease,
+    opacity 180ms ease;
+  box-shadow: 0 14px 32px rgba(249, 115, 22, 0.28);
+}
+
+.action-button:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 18px 36px rgba(20, 184, 166, 0.22);
+}
+
+.action-button:active {
+  transform: translateY(0);
+}
