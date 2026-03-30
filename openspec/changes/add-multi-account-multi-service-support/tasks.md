@@ -2,12 +2,12 @@
 
 ## 1. Account and identity model
 
-- [ ] 1.1 Define a normalized inbound event type for provider-agnostic accounting flows.
-- [ ] 1.2 Define normalized response intents for replies, files, confirmations, and errors.
-- [ ] 1.3 Design the `accounts` table for internal ledger ownership.
-- [ ] 1.4 Design the `account_identities` table for provider-to-account mapping.
-- [ ] 1.5 Decide and document the migration strategy from provider-based `user_id` ownership to `account_id` ownership.
-- [ ] 1.6 Lock the first rollout scope to one-to-one Telegram and LINE chats only.
+- [x] 1.1 Define a normalized inbound event type for provider-agnostic accounting flows.
+- [x] 1.2 Define normalized response intents for replies, files, confirmations, and errors.
+- [x] 1.3 Design the `accounts` table for internal ledger ownership.
+- [x] 1.4 Design the `account_identities` table for provider-to-account mapping.
+- [x] 1.5 Decide and document the migration strategy from provider-based `user_id` ownership to `account_id` ownership.
+- [x] 1.6 Lock the first rollout scope to one-to-one Telegram and LINE chats only.
 
 ## 2. Schema and provisioning
 
@@ -63,17 +63,22 @@
 ## 8. Verification
 
 - [x] 8.1 Run the relevant automated tests.
-- [ ] 8.2 Manually review Telegram behavior for regressions after adapter extraction.
-- [ ] 8.3 Manually verify the same account sees the same ledger from Telegram and LINE.
+- [x] 8.2 Manually review Telegram behavior for regressions after adapter extraction.
+- [x] 8.3 Manually verify the same account sees the same ledger from Telegram and LINE.
 - [ ] 8.4 Manually verify different accounts cannot see each other's data.
 - [x] 8.5 Mark completed items and record any intentionally deferred provider-parity gaps.
 
 Runbook:
 - `openspec/changes/add-multi-account-multi-service-support/manual-verification.md`
 
+Verification notes:
+
+- 2026-03-30 staging: Telegram `/start`, expense insert, and `/summary` were manually rechecked after the adapter extraction and behaved as expected.
+- 2026-03-30 staging: the same account successfully paired Telegram with LINE, and `/summary` matched across both providers immediately after pairing.
+
 ## Deferred parity gaps
 
 - LINE export currently falls back to a text instruction because LINE has no direct Telegram-style document delivery equivalent in the current adapter.
 - LINE postback flows currently render callback alerts and edit results as visible text replies because LINE has no exact equivalent to Telegram callback alerts or message edits.
 - Provider-neutral bootstrap and pairing were verified on 2026-03-30 in change `add-provider-bootstrap-and-pairing`, so fresh cross-service onboarding no longer depends on pre-provisioned identities.
-- Real provider provisioning and end-to-end manual verification still remain for tasks `8.3` and `8.4`.
+- Real provider provisioning and end-to-end manual verification still remain for task `8.4`.
