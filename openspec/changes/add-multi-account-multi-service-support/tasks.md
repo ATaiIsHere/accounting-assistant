@@ -20,18 +20,18 @@
 
 ## 3. Extract the accounting core
 
-- [ ] 3.1 Move expense parsing and decision logic out of direct grammY handler branches.
-- [ ] 3.2 Keep insert, query, edit, export, and category-management behaviors in the shared core.
-- [ ] 3.3 Ensure the shared core accepts normalized events and returns normalized response intents.
-- [ ] 3.4 Remove direct provider assumptions from the shared accounting logic.
+- [x] 3.1 Move expense parsing and decision logic out of direct grammY handler branches.
+- [x] 3.2 Keep insert, query, edit, export, and category-management behaviors in the shared core.
+- [x] 3.3 Ensure the shared core accepts normalized events and returns normalized response intents.
+- [x] 3.4 Remove direct provider assumptions from the shared accounting logic.
 - [x] 3.5 Resolve `account_id` before invoking shared bookkeeping behavior.
 
 ## 4. Refactor Telegram into an adapter
 
 - [ ] 4.1 Keep `/webhook/telegram` as the Telegram transport entrypoint.
-- [ ] 4.2 Map Telegram text, photo, reply, and callback events into the shared input model.
+- [x] 4.2 Map Telegram text, photo, reply, and callback events into the shared input model.
 - [x] 4.3 Resolve Telegram `external_user_id` to the correct `account_id`.
-- [ ] 4.4 Map shared response intents back into Telegram replies, documents, and inline keyboards.
+- [x] 4.4 Map shared response intents back into Telegram replies, documents, and inline keyboards.
 - [ ] 4.5 Preserve current Telegram behavior as a regression baseline after the refactor.
 
 ## 5. Add the LINE adapter
