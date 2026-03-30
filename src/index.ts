@@ -28,6 +28,43 @@ type RequestAccount = {
 
 const app = new Hono<{ Bindings: Bindings }>()
 
+let cachedTelegramBotInfo:
+  | {
+      token: string
+      fetchedAt: number
+      info: {
+        id: number
+        is_bot: true
+        first_name: string
+        username: string
+        can_join_groups?: boolean
+        can_read_all_group_messages?: boolean
+        supports_inline_queries?: boolean
+      }
+    }
+  | null = null
+
+async function getTelegramBotInfo(token: string) {
+  const now = Date.now()
+  if (
+    cachedTelegramBotInfo &&
+    cachedTelegramBotInfo.token === token &&
+    now - cachedTelegramBotInfo.fetchedAt < 60 * 60 * 1000
+  ) {
+    return cachedTelegramBotInfo.info
+  }
+
+  const bootstrapBot = new Bot(token)
+  const botInfo = await bootstrapBot.api.getMe()
+  cachedTelegramBotInfo = {
+    token,
+    fetchedAt: now,
+    info: botInfo
+  }
+
+  return botInfo
+}
+
 function setRequestAccount(ctx: any, account: RequestAccount) {
   ctx.requestAccount = account
 }
@@ -132,16 +169,9 @@ app.post('/webhook/telegram', async (c) => {
     return c.text('Unauthorized', 401)
   }
 
+  const botInfo = await getTelegramBotInfo(c.env.TELEGRAM_BOT_TOKEN)
   const bot = new Bot(c.env.TELEGRAM_BOT_TOKEN, {
-    botInfo: {
-      id: 1,
-      is_bot: true,
-      first_name: "Accounting Assistant",
-      username: "accountant_bot",
-      can_join_groups: true,
-      can_read_all_group_messages: true,
-      supports_inline_queries: false,
-    } as any
+    botInfo
   })
   const db = new CoreDB(c.env.DB)
   const accounting = new AccountingService(db, {
