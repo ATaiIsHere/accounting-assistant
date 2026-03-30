@@ -11,11 +11,11 @@
 
 ## 2. Schema and provisioning
 
-- [ ] 2.1 Update `schema.sql` for internal accounts and identity mapping.
-- [ ] 2.2 Update bookkeeping tables so expenses, categories, and pending drafts are owned by `account_id`.
-- [ ] 2.3 Add constraints or indexes that prevent one external identity from being linked to multiple accounts.
-- [ ] 2.4 Define the first-version provisioning flow for 2 to 3 manually managed users.
-- [ ] 2.5 Backfill or migrate the current single-user Telegram data into the new account model.
+- [x] 2.1 Update `schema.sql` for internal accounts and identity mapping.
+- [x] 2.2 Update bookkeeping tables so expenses, categories, and pending drafts are owned by `account_id`.
+- [x] 2.3 Add constraints or indexes that prevent one external identity from being linked to multiple accounts.
+- [x] 2.4 Define the first-version provisioning flow for 2 to 3 manually managed users.
+- [x] 2.5 Backfill or migrate the current single-user Telegram data into the new account model.
 - [x] 2.6 Add or design an admin provisioning script for creating accounts and linked identities.
 
 ## 3. Extract the accounting core

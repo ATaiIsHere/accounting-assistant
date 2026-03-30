@@ -51,12 +51,39 @@ accounting-assistant/
 npm install
 ```
 
-再安裝 dashboard 依賴：
+# 執行全自動設定腳本
+npm run setup
+\`\`\`
+執行腳本後，程式會：
+1. 自動創建 `accounting-db` 資料庫並覆寫 `wrangler.jsonc`。
+2. 自動套用 `wrangler d1 migrations`，建立或升級資料庫結構。
+3. 透過互動式介面引導您輸入 `TELEGRAM_BOT_TOKEN`、`GEMINI_API_KEY` 與 `ALLOWED_USER_ID`，並自動安全地加密存入 Cloudflare Secrets 中。
+
+### 3.5 既有資料庫升級與帳號綁定 (Multi-account Bootstrap)
+
+若您已經有既有 D1 資料庫，現在要升級到 multi-account / multi-service schema，可依序執行：
 
 ```bash
-cd dashboard
-npm install
+npm run migrate:remote
+npm run provision:account -- --remote --env production --account-slug amy --display-name "Amy" --telegram-user-id 123456789 --line-user-id Uxxxxxxxx
 ```
+
+可用指令：
+
+- `npm run migrate:local`
+- `npm run migrate:remote`
+- `npm run migrate:staging`
+- `npm run provision:account -- --dry-run ...`
+
+### 4. 終極一鍵部署 (Deploy to Production)
+現在我們已經將環境設定、部署、與 Webhook 註冊**完美串接在同一個指令**中！若您是第一次克隆此專案，只要跑這一行就夠了：
+\`\`\`bash
+npm run deploy
+\`\`\`
+執行此指令後，系統會自動：
+1. **[偵測]** 發現環境未初始化，自動呼叫 `npm run setup` 建立 D1 資料庫與安全憑證。
+2. **[建置]** 自動編譯並將程式碼發佈推送到 Cloudflare Workers。
+3. **[註冊]** 自動呼叫 Telegram API，將您的專屬 Worker 網址安全註冊為伺服器 Webhook。
 
 ## 本機開發
 

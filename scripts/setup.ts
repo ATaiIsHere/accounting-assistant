@@ -40,9 +40,9 @@ async function run() {
     fs.writeFileSync(wranglerPath, config);
     console.log('✅ wrangler.jsonc 更新完成！\n');
 
-    // 3. Sync Schema
-    console.log('🗂️ 正在同步資料庫結構 (schema.sql)...');
-    execSync('npx wrangler d1 execute DB --remote --file=./schema.sql', { stdio: 'inherit' });
+    // 3. Apply migrations
+    console.log('🗂️ 正在同步資料庫結構 (wrangler migrations)...');
+    execSync('npx wrangler d1 migrations apply DB --remote', { stdio: 'inherit' });
     console.log('✅ 資料庫結構同步完成！\n');
 
     // 4. Ask for Secrets

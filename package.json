@@ -4,6 +4,9 @@
   "scripts": {
     "setup": "tsx scripts/setup.ts",
     "provision:account": "tsx scripts/provision-account.ts",
+    "migrate:local": "wrangler d1 migrations apply DB --local",
+    "migrate:remote": "wrangler d1 migrations apply DB --remote",
+    "migrate:staging": "wrangler d1 migrations apply DB --remote -e staging",
     "dev": "wrangler dev",
     "deploy": "tsx scripts/deploy.ts",
     "deploy:staging": "wrangler deploy -e staging --minify",
