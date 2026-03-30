@@ -1,7 +1,13 @@
 import { InlineKeyboard, InputFile } from 'grammy'
 import type { AccountingAction } from '../core/accounting'
 import type { CoreDB } from '../core/db'
-import { buildBootstrapReplyActions } from '../core/onboarding'
+import {
+  buildBootstrapReplyActions,
+  buildPairingConsumeReplyActions,
+  consumePairingCodeActions,
+  issuePairingCodeActions,
+  parseBindCommand
+} from '../core/onboarding'
 
 export async function resolveTelegramRequestAccount({
   chatType,
@@ -84,6 +90,83 @@ export async function handleTelegramBootstrapCommand({
   return buildBootstrapReplyActions(
     await db.consumeBootstrapInvite('telegram', externalUserId, trimmedCode)
   )
+}
+
+export async function handleTelegramPairCommand({
+  chatType,
+  accountId,
+  rawTargetProvider,
+  db
+}: {
+  chatType?: string | null
+  accountId?: number | null
+  rawTargetProvider?: string | null
+  db: Pick<CoreDB, 'getDirectIdentityForAccount' | 'issuePairingCode'>
+}): Promise<AccountingAction[] | null> {
+  if (chatType && chatType !== 'private') {
+    return null
+  }
+
+  if (!accountId) {
+    return null
+  }
+
+  return issuePairingCodeActions({
+    accountId,
+    sourceProvider: 'telegram',
+    rawTargetProvider,
+    db
+  })
+}
+
+export async function handleTelegramBindCommand({
+  chatType,
+  externalUserId,
+  text,
+  db,
+  allowedUserId
+}: {
+  chatType?: string | null
+  externalUserId?: string | null
+  text?: string | null
+  db: Pick<CoreDB, 'consumePairingCode' | 'getAccountIdByIdentity' | 'ensureLegacyTelegramAccount'>
+  allowedUserId?: string
+}): Promise<AccountingAction[] | null> {
+  if (chatType && chatType !== 'private') {
+    return null
+  }
+
+  if (!externalUserId || !text) {
+    return null
+  }
+
+  const bindCommand = parseBindCommand(text)
+  if (!bindCommand.matched) {
+    return null
+  }
+
+  const existingAccount = await resolveTelegramRequestAccount({
+    chatType,
+    externalUserId,
+    db,
+    allowedUserId
+  })
+  if (existingAccount) {
+    return buildPairingConsumeReplyActions(
+      {
+        status: 'identity-already-linked',
+        account_id: existingAccount.accountId
+      },
+      'telegram'
+    )
+  }
+
+  return consumePairingCodeActions({
+    targetProvider: 'telegram',
+    externalUserId,
+    code: bindCommand.code,
+    db
+  })
 }
 
 export async function applyTelegramActions(ctx: any, actions: AccountingAction[]) {

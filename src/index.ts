@@ -1,7 +1,13 @@
 import { Hono } from 'hono'
 import { Bot } from 'grammy'
 import { handleLineEvent, type LineWebhookPayload, verifyLineSignature } from './adapters/line'
-import { applyTelegramActions, handleTelegramBootstrapCommand, resolveTelegramRequestAccount } from './adapters/telegram'
+import {
+  applyTelegramActions,
+  handleTelegramBindCommand,
+  handleTelegramBootstrapCommand,
+  handleTelegramPairCommand,
+  resolveTelegramRequestAccount
+} from './adapters/telegram'
 import { CoreDB } from './core/db'
 import { AccountingService } from './core/accounting'
 import type { D1Database } from '@cloudflare/workers-types'
@@ -158,6 +164,21 @@ app.post('/webhook/telegram', async (c) => {
     await applyTelegramActions(ctx, actions)
   })
 
+  bot.hears(/^綁定(?:\s+.+)?$/u, async (ctx) => {
+    const actions = await handleTelegramBindCommand({
+      chatType: ctx.chat?.type,
+      externalUserId: ctx.from?.id?.toString(),
+      text: ctx.message?.text,
+      db,
+      allowedUserId: c.env.ALLOWED_USER_ID
+    })
+    if (!actions) {
+      return
+    }
+
+    await applyTelegramActions(ctx, actions)
+  })
+
   // 1. Authentication
   bot.use(async (ctx, next) => {
     const account = await resolveTelegramRequestAccount({
@@ -173,6 +194,21 @@ app.post('/webhook/telegram', async (c) => {
   })
 
   // 2. Simple Commands
+  bot.command('pair', async (ctx) => {
+    const account = getRequestAccount(ctx)
+    const actions = await handleTelegramPairCommand({
+      chatType: ctx.chat?.type,
+      accountId: account.accountId,
+      rawTargetProvider: typeof ctx.match === 'string' ? ctx.match : null,
+      db
+    })
+    if (!actions) {
+      return
+    }
+
+    await applyTelegramActions(ctx, actions)
+  })
+
   bot.command('start', async (ctx) => {
     const account = getRequestAccount(ctx)
     await applyTelegramActions(

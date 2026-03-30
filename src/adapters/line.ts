@@ -1,6 +1,11 @@
 import type { AccountingAction, AccountingCommand, AccountingService } from '../core/accounting'
 import type { CoreDB } from '../core/db'
-import { buildBootstrapReplyActions } from '../core/onboarding'
+import {
+  buildBootstrapReplyActions,
+  consumePairingCodeActions,
+  issuePairingCodeActions,
+  parseBindCommand
+} from '../core/onboarding'
 
 const LINE_REPLY_API_URL = 'https://api.line.me/v2/bot/message/reply'
 const LINE_MESSAGE_CONTENT_API_BASE = 'https://api-data.line.me/v2/bot/message'
@@ -97,6 +102,23 @@ export function parseLineBootstrapCommand(text: string): { matched: boolean; cod
   return {
     matched: true,
     code: match[1].trim() || null
+  }
+}
+
+export function parseLinePairCommand(text: string): { matched: boolean; targetProvider: string | null } {
+  const normalized = text.trim()
+  if (normalized === '配對') {
+    return { matched: true, targetProvider: null }
+  }
+
+  const match = normalized.match(/^配對\s+(.+)$/u)
+  if (!match) {
+    return { matched: false, targetProvider: null }
+  }
+
+  return {
+    matched: true,
+    targetProvider: match[1].trim() || null
   }
 }
 
@@ -237,7 +259,14 @@ export async function handleLineEvent({
   fetchImpl = fetch
 }: {
   event: LineWebhookEvent
-  db: Pick<CoreDB, 'consumeBootstrapInvite' | 'getAccountIdByIdentity'>
+  db: Pick<
+    CoreDB,
+    | 'consumeBootstrapInvite'
+    | 'consumePairingCode'
+    | 'getAccountIdByIdentity'
+    | 'getDirectIdentityForAccount'
+    | 'issuePairingCode'
+  >
   accounting: Pick<AccountingService, 'handleCommand' | 'handleMessage' | 'handleCallback'>
   lineAccessToken: string
   fetchImpl?: LineFetch
@@ -262,6 +291,22 @@ export async function handleLineEvent({
           : [{ type: 'reply-text', text: '請使用「建立帳本 <邀請碼>」建立你的帳本。' } satisfies AccountingAction]
 
         await replyLineMessages(lineAccessToken, replyToken, actions, fetchImpl)
+        return 'replied'
+      }
+
+      const bindCommand = parseBindCommand(event.message.text || '')
+      if (bindCommand.matched) {
+        await replyLineMessages(
+          lineAccessToken,
+          replyToken,
+          await consumePairingCodeActions({
+            targetProvider: 'line',
+            externalUserId,
+            code: bindCommand.code,
+            db
+          }),
+          fetchImpl
+        )
         return 'replied'
       }
     }
@@ -296,6 +341,22 @@ export async function handleLineEvent({
 
   if (event.message.type === 'text') {
     const text = event.message.text || ''
+    const pairCommand = parseLinePairCommand(text)
+    if (pairCommand.matched) {
+      await replyLineMessages(
+        lineAccessToken,
+        replyToken,
+        await issuePairingCodeActions({
+          accountId,
+          sourceProvider: 'line',
+          rawTargetProvider: pairCommand.targetProvider,
+          db
+        }),
+        fetchImpl
+      )
+      return 'replied'
+    }
+
     const command = extractAccountingCommand(text)
     const actions = command
       ? await accounting.handleCommand(command, context)

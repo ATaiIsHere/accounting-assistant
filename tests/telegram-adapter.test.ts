@@ -1,7 +1,9 @@
 import { describe, expect, it, vi } from 'vitest'
 import {
   applyTelegramActions,
+  handleTelegramBindCommand,
   handleTelegramBootstrapCommand,
+  handleTelegramPairCommand,
   resolveTelegramRequestAccount
 } from '../src/adapters/telegram'
 
@@ -182,6 +184,142 @@ describe('handleTelegramBootstrapCommand', () => {
       {
         type: 'reply-text',
         text: 'ℹ️ 你已經建立過帳本了，可以直接開始記帳。'
+      }
+    ])
+  })
+})
+
+describe('handleTelegramPairCommand', () => {
+  it('issues a pairing code for a supported target provider', async () => {
+    const db = {
+      getDirectIdentityForAccount: vi.fn().mockResolvedValue(null),
+      issuePairingCode: vi.fn().mockResolvedValue(undefined)
+    }
+
+    const actions = await handleTelegramPairCommand({
+      chatType: 'private',
+      accountId: 12,
+      rawTargetProvider: 'line',
+      db: db as any
+    })
+
+    expect(db.getDirectIdentityForAccount).toHaveBeenCalledWith(12, 'line')
+    expect(db.issuePairingCode).toHaveBeenCalledWith(
+      expect.objectContaining({
+        account_id: 12,
+        target_provider: 'line',
+        requested_via_provider: 'telegram',
+        code: expect.any(String),
+        expires_at: expect.any(String)
+      })
+    )
+    expect(actions).toEqual([
+      expect.objectContaining({
+        type: 'reply-text',
+        text: expect.stringContaining('已建立 LINE 配對碼')
+      })
+    ])
+  })
+
+  it('returns usage text or already-linked text for unsupported or duplicate targets', async () => {
+    const usageActions = await handleTelegramPairCommand({
+      chatType: 'private',
+      accountId: 12,
+      rawTargetProvider: '',
+      db: {
+        getDirectIdentityForAccount: vi.fn(),
+        issuePairingCode: vi.fn()
+      } as any
+    })
+
+    expect(usageActions).toEqual([
+      {
+        type: 'reply-text',
+        text: '請使用 /pair <telegram|line> 產生配對碼。'
+      }
+    ])
+
+    const duplicateActions = await handleTelegramPairCommand({
+      chatType: 'private',
+      accountId: 12,
+      rawTargetProvider: 'line',
+      db: {
+        getDirectIdentityForAccount: vi.fn().mockResolvedValue({ id: 1 }),
+        issuePairingCode: vi.fn()
+      } as any
+    })
+
+    expect(duplicateActions).toEqual([
+      {
+        type: 'reply-text',
+        text: 'ℹ️ 你的帳本已經綁定 LINE，不用再配對一次。'
+      }
+    ])
+  })
+})
+
+describe('handleTelegramBindCommand', () => {
+  it('binds an unlinked telegram identity with a valid pairing code', async () => {
+    const db = {
+      getAccountIdByIdentity: vi.fn().mockResolvedValue(null),
+      ensureLegacyTelegramAccount: vi.fn(),
+      consumePairingCode: vi.fn().mockResolvedValue({
+        status: 'linked',
+        account_id: 55
+      })
+    }
+
+    const actions = await handleTelegramBindCommand({
+      chatType: 'private',
+      externalUserId: 'tg-new',
+      text: '綁定 PAIR-123',
+      db: db as any
+    })
+
+    expect(db.consumePairingCode).toHaveBeenCalledWith('telegram', 'tg-new', 'PAIR-123')
+    expect(actions).toEqual([
+      {
+        type: 'reply-text',
+        text: '✅ 已完成 Telegram 配對！\n現在可以在這個通訊軟體使用同一本帳本了。'
+      }
+    ])
+  })
+
+  it('returns usage text for missing codes and already-linked text for initialized identities', async () => {
+    const usageActions = await handleTelegramBindCommand({
+      chatType: 'private',
+      externalUserId: 'tg-new',
+      text: '綁定',
+      db: {
+        getAccountIdByIdentity: vi.fn().mockResolvedValue(null),
+        ensureLegacyTelegramAccount: vi.fn(),
+        consumePairingCode: vi.fn()
+      } as any
+    })
+
+    expect(usageActions).toEqual([
+      {
+        type: 'reply-text',
+        text: '請使用「綁定 <配對碼>」完成帳本配對。'
+      }
+    ])
+
+    const linkedActions = await handleTelegramBindCommand({
+      chatType: 'private',
+      externalUserId: '999',
+      text: '綁定 PAIR-999',
+      db: {
+        getAccountIdByIdentity: vi.fn().mockResolvedValue(null),
+        ensureLegacyTelegramAccount: vi.fn().mockResolvedValue(34),
+        consumePairingCode: vi.fn()
+      } as any,
+      allowedUserId: '999'
+    })
+
+    expect(linkedActions).toEqual([
+      {
+        type: 'reply-text',
+        text: 'ℹ️ 這個 Telegram 帳號已經綁定過帳本，可以直接開始記帳。'
       }
     ])
   })

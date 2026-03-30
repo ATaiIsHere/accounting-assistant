@@ -3,6 +3,7 @@ import {
   buildLineReplyMessages,
   handleLineEvent,
   parseLineBootstrapCommand,
+  parseLinePairCommand,
   verifyLineSignature
 } from '../src/adapters/line'
 
@@ -81,10 +82,28 @@ describe('LINE adapter', () => {
     })
   })
 
+  it('parses LINE pair commands with and without target providers', () => {
+    expect(parseLinePairCommand('配對 telegram')).toEqual({
+      matched: true,
+      targetProvider: 'telegram'
+    })
+    expect(parseLinePairCommand('配對')).toEqual({
+      matched: true,
+      targetProvider: null
+    })
+    expect(parseLinePairCommand('/summary')).toEqual({
+      matched: false,
+      targetProvider: null
+    })
+  })
+
   it('delegates text commands through the shared accounting service and replies to LINE', async () => {
     const db = {
       getAccountIdByIdentity: vi.fn().mockResolvedValue(11),
-      consumeBootstrapInvite: vi.fn()
+      consumeBootstrapInvite: vi.fn(),
+      consumePairingCode: vi.fn(),
+      getDirectIdentityForAccount: vi.fn(),
+      issuePairingCode: vi.fn()
     }
     const accounting = {
       handleCommand: vi.fn().mockResolvedValue([{ type: 'reply-text', text: 'summary-ok' }]),
@@ -136,7 +155,10 @@ describe('LINE adapter', () => {
   it('replies with an authorization notice when the LINE identity is not provisioned', async () => {
     const db = {
       getAccountIdByIdentity: vi.fn().mockResolvedValue(null),
-      consumeBootstrapInvite: vi.fn()
+      consumeBootstrapInvite: vi.fn(),
+      consumePairingCode: vi.fn(),
+      getDirectIdentityForAccount: vi.fn(),
+      issuePairingCode: vi.fn()
     }
     const accounting = {
       handleCommand: vi.fn(),
@@ -174,6 +196,12 @@ describe('LINE adapter', () => {
   it('bootstraps a LINE account from a valid invite and returns usage guidance for missing codes', async () => {
     const db = {
       getAccountIdByIdentity: vi.fn().mockResolvedValue(null),
+      consumePairingCode: vi
+        .fn()
+        .mockResolvedValueOnce({ status: 'linked', account_id: 31 })
+        .mockResolvedValueOnce({ status: 'invalid' }),
+      getDirectIdentityForAccount: vi.fn(),
+      issuePairingCode: vi.fn(),
       consumeBootstrapInvite: vi
         .fn()
         .mockResolvedValueOnce({ status: 'created', account_id: 21 })
@@ -269,12 +297,121 @@ describe('LINE adapter', () => {
         text: '⌛ 邀請碼已過期，請向管理者索取新的建立帳本邀請碼。'
       }
     ])
+
+    await expect(
+      handleLineEvent({
+        event: {
+          type: 'message',
+          replyToken: 'reply-token',
+          source: { type: 'user', userId: 'U-bootstrap' },
+          message: {
+            id: 'msg-bind-1',
+            type: 'text',
+            text: '綁定 PAIR-123'
+          }
+        },
+        db: db as any,
+        accounting: accounting as any,
+        lineAccessToken: 'line-token',
+        fetchImpl
+      })
+    ).resolves.toBe('replied')
+
+    await expect(
+      handleLineEvent({
+        event: {
+          type: 'message',
+          replyToken: 'reply-token',
+          source: { type: 'user', userId: 'U-bootstrap' },
+          message: {
+            id: 'msg-bind-2',
+            type: 'text',
+            text: '綁定 BAD-CODE'
+          }
+        },
+        db: db as any,
+        accounting: accounting as any,
+        lineAccessToken: 'line-token',
+        fetchImpl
+      })
+    ).resolves.toBe('replied')
+
+    expect(db.consumePairingCode).toHaveBeenNthCalledWith(1, 'line', 'U-bootstrap', 'PAIR-123')
+    expect(db.consumePairingCode).toHaveBeenNthCalledWith(2, 'line', 'U-bootstrap', 'BAD-CODE')
+
+    const bindSuccessBody = JSON.parse(fetchImpl.mock.calls[3][1]?.body as string)
+    expect(bindSuccessBody.messages).toEqual([
+      {
+        type: 'text',
+        text: '✅ 已完成 LINE 配對！\n現在可以在這個通訊軟體使用同一本帳本了。'
+      }
+    ])
+
+    const bindInvalidBody = JSON.parse(fetchImpl.mock.calls[4][1]?.body as string)
+    expect(bindInvalidBody.messages).toEqual([
+      {
+        type: 'text',
+        text: '❌ 配對碼無效，請回到已綁定的通訊軟體重新產生配對碼。'
+      }
+    ])
+  })
+
+  it('issues pairing codes for linked LINE users', async () => {
+    const db = {
+      getAccountIdByIdentity: vi.fn().mockResolvedValue(12),
+      consumeBootstrapInvite: vi.fn(),
+      consumePairingCode: vi.fn(),
+      getDirectIdentityForAccount: vi.fn().mockResolvedValue(null),
+      issuePairingCode: vi.fn().mockResolvedValue(undefined)
+    }
+    const accounting = {
+      handleCommand: vi.fn(),
+      handleMessage: vi.fn(),
+      handleCallback: vi.fn()
+    }
+    const fetchImpl = vi.fn().mockResolvedValue(new Response(null, { status: 200 }))
+
+    await expect(
+      handleLineEvent({
+        event: {
+          type: 'message',
+          replyToken: 'reply-token',
+          source: { type: 'user', userId: 'U-pair' },
+          message: {
+            id: 'msg-pair-1',
+            type: 'text',
+            text: '配對 telegram'
+          }
+        },
+        db: db as any,
+        accounting: accounting as any,
+        lineAccessToken: 'line-token',
+        fetchImpl
+      })
+    ).resolves.toBe('replied')
+
+    expect(db.getDirectIdentityForAccount).toHaveBeenCalledWith(12, 'telegram')
+    expect(db.issuePairingCode).toHaveBeenCalledWith(
+      expect.objectContaining({
+        account_id: 12,
+        target_provider: 'telegram',
+        requested_via_provider: 'line',
+        code: expect.any(String),
+        expires_at: expect.any(String)
+      })
+    )
+
+    const requestBody = JSON.parse(fetchImpl.mock.calls[0][1]?.body as string)
+    expect(requestBody.messages[0].text).toContain('已建立 Telegram 配對碼')
   })
 
   it('fetches LINE image content before sending it into the shared service', async () => {
     const db = {
       getAccountIdByIdentity: vi.fn().mockResolvedValue(12),
-      consumeBootstrapInvite: vi.fn()
+      consumeBootstrapInvite: vi.fn(),
+      consumePairingCode: vi.fn(),
+      getDirectIdentityForAccount: vi.fn(),
+      issuePairingCode: vi.fn()
     }
     const accounting = {
       handleCommand: vi.fn(),
@@ -333,7 +470,10 @@ describe('LINE adapter', () => {
   it('ignores unsupported group events and turns postback alerts into visible replies', async () => {
     const db = {
       getAccountIdByIdentity: vi.fn().mockResolvedValue(13),
-      consumeBootstrapInvite: vi.fn()
+      consumeBootstrapInvite: vi.fn(),
+      consumePairingCode: vi.fn(),
+      getDirectIdentityForAccount: vi.fn(),
+      issuePairingCode: vi.fn()
     }
     const accounting = {
       handleCommand: vi.fn(),

@@ -20,27 +20,27 @@
 
 ## 3. Provider-neutral pairing flow
 
-- [ ] 3.1 Add pair-code issuance commands for linked users on supported providers, starting with Telegram and LINE.
-- [ ] 3.2 Restrict pairing code issuance to already linked direct-chat identities.
-- [ ] 3.3 Revoke older pending pairing codes when a new code is issued for the same account and target provider.
-- [ ] 3.4 Recognize `綁定 <配對碼>` on unlinked target-provider direct chats before falling back to the unauthorized reply.
-- [ ] 3.5 Validate that the pairing code is pending, unexpired, and single-use.
-- [ ] 3.6 Create the new `account_identities` mapping on successful pairing.
-- [ ] 3.7 Mark the pairing code as used and record which provider identity consumed it.
-- [ ] 3.8 Return distinct Traditional Chinese replies for success, invalid code, expired code, and already-linked cases.
+- [x] 3.1 Add pair-code issuance commands for linked users on supported providers, starting with Telegram and LINE.
+- [x] 3.2 Restrict pairing code issuance to already linked direct-chat identities.
+- [x] 3.3 Revoke older pending pairing codes when a new code is issued for the same account and target provider.
+- [x] 3.4 Recognize `綁定 <配對碼>` on unlinked target-provider direct chats before falling back to the unauthorized reply.
+- [x] 3.5 Validate that the pairing code is pending, unexpired, and single-use.
+- [x] 3.6 Create the new `account_identities` mapping on successful pairing.
+- [x] 3.7 Mark the pairing code as used and record which provider identity consumed it.
+- [x] 3.8 Return distinct Traditional Chinese replies for success, invalid code, expired code, and already-linked cases.
 
 ## 4. Tests
 
 - [x] 4.1 Add DB coverage for bootstrap invite creation, redemption, expiry, and single-use behavior.
 - [x] 4.2 Add DB coverage for provider pairing code creation, replacement, expiry, and single-use behavior.
 - [x] 4.3 Add Telegram and LINE adapter coverage for bootstrap success and failure paths.
-- [ ] 4.4 Add adapter coverage for pair-code issuance from Telegram and LINE.
-- [ ] 4.5 Add adapter coverage for `綁定 <配對碼>` success and failure paths on the target provider.
-- [ ] 4.6 Add isolation coverage proving a provider identity already linked to account B cannot be claimed by account A.
+- [x] 4.4 Add adapter coverage for pair-code issuance from Telegram and LINE.
+- [x] 4.5 Add adapter coverage for `綁定 <配對碼>` success and failure paths on the target provider.
+- [x] 4.6 Add isolation coverage proving a provider identity already linked to account B cannot be claimed by account A.
 
 ## 5. Verification
 
-- [ ] 5.1 Run the relevant automated tests.
+- [x] 5.1 Run the relevant automated tests.
 - [ ] 5.2 Manually verify a new account can be bootstrapped from Telegram with a valid invite.
 - [ ] 5.3 Manually verify a new account can be bootstrapped from LINE with a valid invite.
 - [ ] 5.4 Manually verify any linked provider can issue a pairing code for another supported provider.
