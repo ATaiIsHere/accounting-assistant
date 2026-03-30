@@ -1,18 +1,35 @@
 import { Hono } from 'hono'
 import { Bot, InlineKeyboard, InputFile } from 'grammy'
 import { CoreDB } from './core/db'
-import { processExpenseWithGemini, extractAmountOnly, processExpenseUpdateWithGemini } from './core/gemini'
+import { processExpenseWithGemini, processExpenseUpdateWithGemini } from './core/gemini'
 import type { D1Database } from '@cloudflare/workers-types'
 
 export type Bindings = {
   TELEGRAM_BOT_TOKEN: string
   GEMINI_API_KEY: string
-  ALLOWED_USER_ID: string
-  DASHBOARD_PROXY_SECRET: string
+  ALLOWED_USER_ID?: string
   DB: D1Database
 }
 
+type RequestAccount = {
+  accountId: number
+  externalUserId: string
+}
+
 const app = new Hono<{ Bindings: Bindings }>()
+
+function setRequestAccount(ctx: any, account: RequestAccount) {
+  ctx.requestAccount = account
+}
+
+function getRequestAccount(ctx: any): RequestAccount {
+  const account = ctx.requestAccount as RequestAccount | undefined
+  if (!account) {
+    throw new Error('Missing request account context')
+  }
+
+  return account
+}
 
 app.get('/', (c) => c.text('Accounting Assistant Webhook is running!'))
 
@@ -121,7 +138,19 @@ app.post('/webhook/telegram', async (c) => {
   
   // 1. Authentication
   bot.use(async (ctx, next) => {
-    if (ctx.from?.id.toString() !== c.env.ALLOWED_USER_ID) return
+    if (ctx.chat?.type && ctx.chat.type !== 'private') return
+
+    const externalUserId = ctx.from?.id?.toString()
+    if (!externalUserId) return
+
+    let accountId = await db.getAccountIdByIdentity('telegram', externalUserId)
+    if (!accountId && c.env.ALLOWED_USER_ID && externalUserId === c.env.ALLOWED_USER_ID) {
+      accountId = await db.ensureLegacyTelegramAccount(externalUserId)
+    }
+
+    if (!accountId) return
+
+    setRequestAccount(ctx, { accountId, externalUserId })
     await next()
   })
 
@@ -155,14 +184,16 @@ app.post('/webhook/telegram', async (c) => {
   })
 
   bot.command('summary', async (ctx) => {
+    const account = getRequestAccount(ctx)
     const now = new Date(Date.now() + TIMEZONE_OFFSET)
     const monthPrefix = now.toISOString().slice(0, 7)
-    const total = await db.getMonthlySummary(c.env.ALLOWED_USER_ID, monthPrefix)
+    const total = await db.getMonthlySummary(account.accountId, monthPrefix)
     await ctx.reply(`📊 本月 (${monthPrefix}) 累積花費：$${total}`)
   })
 
   bot.command('categories', async (ctx) => {
-    const categories = await db.getCategories(c.env.ALLOWED_USER_ID)
+    const account = getRequestAccount(ctx)
+    const categories = await db.getCategories(account.accountId)
     if (categories.length === 0) {
       await ctx.reply('📂 目前沒有任何帳目分類喔！')
       return
@@ -172,7 +203,8 @@ app.post('/webhook/telegram', async (c) => {
   })
 
   bot.command('export', async (ctx) => {
-    const expenses = await db.getAllExpenses(c.env.ALLOWED_USER_ID)
+    const account = getRequestAccount(ctx)
+    const expenses = await db.getAllExpenses(account.accountId)
     if (expenses.length === 0) {
       await ctx.reply('目前沒有任何記帳紀錄。')
       return
@@ -187,6 +219,8 @@ app.post('/webhook/telegram', async (c) => {
 
   // 3. Core Text & Photo Logic
   bot.on(['message:text', 'message:photo'], async (ctx) => {
+    const account = getRequestAccount(ctx)
+
     // 3.1 Reply-and-modify/delete Anchor Logic
     if (ctx.message?.reply_to_message?.text && ctx.message.text) {
       const match = ctx.message.reply_to_message.text.match(/\(ID: #(\d+)\)/)
@@ -194,16 +228,16 @@ app.post('/webhook/telegram', async (c) => {
         const id = parseInt(match[1])
         const text = ctx.message.text
         if (text.includes('刪除') || text.includes('delete') || text === '刪掉') {
-          await db.deleteExpense(id, c.env.ALLOWED_USER_ID)
+          await db.deleteExpense(id, account.accountId)
           await ctx.reply(`🗑️ 帳目 #${id} 已刪除！`)
         } else {
-          const oldExp = await db.getExpense(id, c.env.ALLOWED_USER_ID)
+          const oldExp = await db.getExpense(id, account.accountId)
           if (!oldExp) {
             await ctx.reply(`❌ 找不到指定的帳目 #${id}！`)
             return
           }
           
-          const categories = await db.getCategories(c.env.ALLOWED_USER_ID)
+          const categories = await db.getCategories(account.accountId)
           const catNames = categories.map(c => c.name)
 
           const processRes = await processExpenseUpdateWithGemini(c.env.GEMINI_API_KEY, catNames, text, oldExp)
@@ -216,14 +250,14 @@ app.post('/webhook/telegram', async (c) => {
             if (processRes.date !== undefined) { dbUpdates.date = processRes.date; replyMsg.push(`📅 日期改為：${processRes.date}`) }
             if (processRes.item !== undefined) { dbUpdates.item = processRes.item; replyMsg.push(`🏷️ 項目改為：${processRes.item}`) }
             if (processRes.suggested_category !== undefined) {
-               let catId = await db.getCategoryByName(c.env.ALLOWED_USER_ID, processRes.suggested_category)
-               if (!catId) catId = await db.createCategory(c.env.ALLOWED_USER_ID, processRes.suggested_category)
+               let catId = await db.getCategoryByName(account.accountId, processRes.suggested_category)
+               if (!catId) catId = await db.createCategory(account.accountId, processRes.suggested_category, account.externalUserId)
                dbUpdates.category_id = catId
                replyMsg.push(`📂 分類改為：${processRes.suggested_category}`)
             }
 
             if (Object.keys(dbUpdates).length > 0) {
-              await db.updateExpense(id, c.env.ALLOWED_USER_ID, dbUpdates)
+              await db.updateExpense(id, account.accountId, dbUpdates)
               await ctx.reply(`🔄 帳目 #${id} 已更新！\n──────────\n${replyMsg.join('\n')}`)
             } else {
               await ctx.reply('無法判斷您要修改的內容。請具體說明要修改哪個欄位（如：金額改為 200）。')
@@ -253,7 +287,7 @@ app.post('/webhook/telegram', async (c) => {
       imageMime = 'image/jpeg' 
     }
 
-    const categories = await db.getCategories(c.env.ALLOWED_USER_ID)
+    const categories = await db.getCategories(account.accountId)
     const catNames = categories.map(c => c.name)
 
     const parsed = await processExpenseWithGemini(
@@ -270,13 +304,13 @@ app.post('/webhook/telegram', async (c) => {
     }
 
     if (parsed.action === 'query') {
-      const report = await db.queryExpenses(c.env.ALLOWED_USER_ID, parsed.filters || {})
+      const report = await db.queryExpenses(account.accountId, parsed.filters || {})
       await ctx.reply(report)
       return
     }
 
     if (parsed.action === 'delete_category' && parsed.category_name) {
-      const catId = await db.getCategoryByName(c.env.ALLOWED_USER_ID, parsed.category_name)
+      const catId = await db.getCategoryByName(account.accountId, parsed.category_name)
       if (!catId) {
         await ctx.reply(`找不到名為「${parsed.category_name}」的分類！`)
         return
@@ -285,7 +319,7 @@ app.post('/webhook/telegram', async (c) => {
       const otherCats = categories.filter(c => c.id !== catId)
       if (otherCats.length === 0) {
         // Edge case: only category
-        await db.deleteCategoryAndReassign(c.env.ALLOWED_USER_ID, catId, null)
+        await db.deleteCategoryAndReassign(account.accountId, catId, null, account.externalUserId)
         await ctx.reply(`🗑️ 已刪除分類「${parsed.category_name}」，因無其他分類，關聯帳目已直接移至系統底層「未分類」。`)
         return
       }
@@ -304,12 +338,12 @@ app.post('/webhook/telegram', async (c) => {
 
     if (parsed.action === 'insert' && parsed.data) {
       const { date, item, amount, suggested_category } = parsed.data
-      let categoryId = await db.getCategoryByName(c.env.ALLOWED_USER_ID, suggested_category)
+      let categoryId = await db.getCategoryByName(account.accountId, suggested_category)
       
       if (categoryId) {
         // Direct insertion
         const id = await db.insertExpense({
-          user_id: c.env.ALLOWED_USER_ID, date, item, amount, category_id: categoryId,
+          account_id: account.accountId, user_id: account.externalUserId, date, item, amount, category_id: categoryId,
           raw_message: textInput || undefined, media_reference: mediaRef || undefined
         })
         await ctx.reply(`✅ 已記錄支出！\n──────────\n📅 日期：${date}\n🏷️ 項目：${item}\n📂 分類：${suggested_category}\n💰 金額：$${amount}\n──────────\n(ID: #${id})`)
@@ -317,7 +351,7 @@ app.post('/webhook/telegram', async (c) => {
         // Dynamic Category Interaction Setup
         const draftId = crypto.randomUUID().slice(0, 8)
         await db.savePendingExpense({
-          draft_id: draftId, user_id: c.env.ALLOWED_USER_ID, date, item, amount, suggested_category,
+          draft_id: draftId, account_id: account.accountId, user_id: account.externalUserId, date, item, amount, suggested_category,
           raw_message: textInput || undefined, media_reference: mediaRef || undefined
         })
         const keyboard = new InlineKeyboard()
@@ -331,12 +365,13 @@ app.post('/webhook/telegram', async (c) => {
 
   // 4. Inline Keyboard Callback Integration
   bot.on('callback_query:data', async (ctx) => {
+    const account = getRequestAccount(ctx)
     const data = ctx.callbackQuery.data
     const parts = data.split(':')
     const action = parts[0]
     
     if (action === 'cancel_draft') {
-      await db.deletePendingExpense(parts[1])
+      await db.deletePendingExpense(parts[1], account.accountId)
       await ctx.editMessageText('❌ 已取消記帳草稿。')
       await ctx.answerCallbackQuery()
       return
@@ -344,20 +379,20 @@ app.post('/webhook/telegram', async (c) => {
 
     if (action === 'confirm_draft') {
       const draftId = parts[1]
-      const draft = await db.getPendingExpense(draftId)
+      const draft = await db.getPendingExpense(draftId, account.accountId)
       if (!draft) {
         await ctx.answerCallbackQuery({ text: '草稿已過期或不存在！', show_alert: true })
         return
       }
 
-      let catId = await db.getCategoryByName(c.env.ALLOWED_USER_ID, draft.suggested_category)
-      if (!catId) catId = await db.createCategory(c.env.ALLOWED_USER_ID, draft.suggested_category)
+      let catId = await db.getCategoryByName(account.accountId, draft.suggested_category)
+      if (!catId) catId = await db.createCategory(account.accountId, draft.suggested_category, account.externalUserId)
       
       const id = await db.insertExpense({
-        user_id: c.env.ALLOWED_USER_ID, date: draft.date, item: draft.item, amount: draft.amount,
+        account_id: account.accountId, user_id: account.externalUserId, date: draft.date, item: draft.item, amount: draft.amount,
         category_id: catId, raw_message: draft.raw_message, media_reference: draft.media_reference
       })
-      await db.deletePendingExpense(draftId)
+      await db.deletePendingExpense(draftId, account.accountId)
 
       await ctx.editMessageText(`✅ 已記錄支出並建立新分類！\n──────────\n📅 日期：${draft.date}\n🏷️ 項目：${draft.item}\n📂 分類：${draft.suggested_category}\n💰 金額：$${draft.amount}\n──────────\n(ID: #${id})`)
       await ctx.answerCallbackQuery()
@@ -375,7 +410,7 @@ app.post('/webhook/telegram', async (c) => {
       const newCatIdStr = parts[2]
       const newCatId = newCatIdStr === 'uncat' ? null : parseInt(newCatIdStr)
       
-      await db.deleteCategoryAndReassign(c.env.ALLOWED_USER_ID, oldCatId, newCatId)
+      await db.deleteCategoryAndReassign(account.accountId, oldCatId, newCatId, account.externalUserId)
       await ctx.editMessageText('✅ 已成功將關聯紀錄移轉並刪除舊分類！')
       await ctx.answerCallbackQuery()
       return

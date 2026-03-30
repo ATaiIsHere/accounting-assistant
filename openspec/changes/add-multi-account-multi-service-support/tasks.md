@@ -24,13 +24,13 @@
 - [ ] 3.2 Keep insert, query, edit, export, and category-management behaviors in the shared core.
 - [ ] 3.3 Ensure the shared core accepts normalized events and returns normalized response intents.
 - [ ] 3.4 Remove direct provider assumptions from the shared accounting logic.
-- [ ] 3.5 Resolve `account_id` before invoking shared bookkeeping behavior.
+- [x] 3.5 Resolve `account_id` before invoking shared bookkeeping behavior.
 
 ## 4. Refactor Telegram into an adapter
 
 - [ ] 4.1 Keep `/webhook/telegram` as the Telegram transport entrypoint.
 - [ ] 4.2 Map Telegram text, photo, reply, and callback events into the shared input model.
-- [ ] 4.3 Resolve Telegram `external_user_id` to the correct `account_id`.
+- [x] 4.3 Resolve Telegram `external_user_id` to the correct `account_id`.
 - [ ] 4.4 Map shared response intents back into Telegram replies, documents, and inline keyboards.
 - [ ] 4.5 Preserve current Telegram behavior as a regression baseline after the refactor.
 
@@ -53,7 +53,7 @@
 
 ## 7. Tests
 
-- [ ] 7.1 Add unit coverage for account resolution and normalized event handling in the shared accounting core.
+- [x] 7.1 Add unit coverage for account resolution and normalized event handling in the shared accounting core.
 - [ ] 7.2 Add Telegram regression coverage for the refactored adapter path.
 - [ ] 7.3 Add adapter-level coverage for the new LINE route.
 - [ ] 7.4 Add coverage proving one account shares a ledger across Telegram and LINE.
