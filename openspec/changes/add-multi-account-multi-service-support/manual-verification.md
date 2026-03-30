@@ -1,5 +1,11 @@
 # Manual Verification Runbook
 
+Provider-neutral bootstrap and pairing now live in the follow-up change `add-provider-bootstrap-and-pairing`.
+
+Before running the cross-service checks below on a fresh account, first complete:
+
+- `openspec/changes/add-provider-bootstrap-and-pairing/manual-verification.md`
+
 This runbook covers the remaining OpenSpec verification items:
 
 - `8.2` Manually review Telegram behavior for regressions after adapter extraction

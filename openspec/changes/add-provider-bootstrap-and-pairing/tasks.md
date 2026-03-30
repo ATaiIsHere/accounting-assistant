@@ -47,3 +47,8 @@
 - [ ] 5.5 Manually verify the target provider can consume the code and immediately share the same ledger.
 - [ ] 5.6 Manually verify expired or already-used bootstrap and pairing codes cannot be reused.
 - [ ] 5.7 Update the previous multi-service verification notes once provider-neutral bootstrap and pairing pass.
+
+Verification notes:
+
+- Use `openspec/changes/add-provider-bootstrap-and-pairing/manual-verification.md` for the final live-provider runbook.
+- Terminal-only smoke testing confirmed migrations, remote D1 admin scripts, and automated coverage, but the remaining checks still require real Telegram/LINE user identities.
