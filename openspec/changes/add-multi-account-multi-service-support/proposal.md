@@ -52,5 +52,6 @@ This proposal assumes:
 - A standalone web or mobile client
 - Shared household/team ledgers
 - Self-service signup, invitations, or password-based login
+- Group chats or multi-person chat support in Telegram or LINE for the first version
 - Full feature parity for every future provider in this first change
 - Voice-note support unless it naturally falls out of a provider's already supported message types

@@ -7,6 +7,7 @@
 - [ ] 1.3 Design the `accounts` table for internal ledger ownership.
 - [ ] 1.4 Design the `account_identities` table for provider-to-account mapping.
 - [ ] 1.5 Decide and document the migration strategy from provider-based `user_id` ownership to `account_id` ownership.
+- [ ] 1.6 Lock the first rollout scope to one-to-one Telegram and LINE chats only.
 
 ## 2. Schema and provisioning
 
@@ -15,6 +16,7 @@
 - [ ] 2.3 Add constraints or indexes that prevent one external identity from being linked to multiple accounts.
 - [ ] 2.4 Define the first-version provisioning flow for 2 to 3 manually managed users.
 - [ ] 2.5 Backfill or migrate the current single-user Telegram data into the new account model.
+- [ ] 2.6 Add or design an admin provisioning script for creating accounts and linked identities.
 
 ## 3. Extract the accounting core
 
@@ -36,10 +38,11 @@
 
 - [ ] 5.1 Add a new webhook route for LINE.
 - [ ] 5.2 Validate LINE signatures and credentials independently from Telegram.
-- [ ] 5.3 Map LINE text and image events into the shared input model.
+- [ ] 5.3 Map only LINE one-on-one text and image events into the shared input model for v1.
 - [ ] 5.4 Resolve LINE `external_user_id` to the correct `account_id`.
 - [ ] 5.5 Implement LINE-compatible reply flows for summaries, exports, confirmations, and errors.
 - [ ] 5.6 Provide a safe fallback when a Telegram-specific interaction pattern has no exact LINE equivalent.
+- [ ] 5.7 Ignore or reject unsupported LINE group and room events safely.
 
 ## 6. Isolation and cross-service behavior
 
@@ -55,6 +58,7 @@
 - [ ] 7.3 Add adapter-level coverage for the new LINE route.
 - [ ] 7.4 Add coverage proving one account shares a ledger across Telegram and LINE.
 - [ ] 7.5 Add coverage proving two different accounts remain fully isolated.
+- [ ] 7.6 Add coverage proving unsupported group or room events do not enter the shared ledger flow.
 
 ## 8. Verification
 

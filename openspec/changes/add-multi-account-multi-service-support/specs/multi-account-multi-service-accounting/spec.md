@@ -48,6 +48,24 @@ The system SHALL isolate bookkeeping data by internal account so one person's ex
 - **WHEN** account B interacts through LINE
 - **THEN** account B cannot read, edit, export, or delete account A's data
 
+### Requirement: The first rollout shall support direct chats only
+
+The system SHALL support only direct one-to-one chats in the first rollout of multi-account multi-service support. Unsupported group, room, or multi-person chat events shall not be allowed to access the shared bookkeeping flow.
+
+#### Scenario: Unsupported LINE room event is ignored
+
+- **GIVEN** a LINE webhook event from a room or group context
+- **WHEN** the system receives the event
+- **THEN** the event is ignored or rejected safely
+- **AND** no bookkeeping data is returned or changed
+
+#### Scenario: Unsupported Telegram group event is ignored
+
+- **GIVEN** a Telegram update from a non-private chat
+- **WHEN** the system receives the update
+- **THEN** the event is ignored or rejected safely
+- **AND** no bookkeeping data is returned or changed
+
 ### Requirement: Existing Telegram behavior shall remain supported after the refactor
 
 The system SHALL preserve the current Telegram bookkeeping capabilities after the provider abstraction is introduced.
