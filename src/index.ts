@@ -9,6 +9,7 @@ export type Bindings = {
   GEMINI_API_KEY: string
   ALLOWED_USER_ID: string
   DASHBOARD_PROXY_SECRET: string
+  DASHBOARD_URL?: string
   DB: D1Database
 }
 
@@ -118,6 +119,7 @@ app.post('/webhook/telegram', async (c) => {
   })
   const db = new CoreDB(c.env.DB)
   const TIMEZONE_OFFSET = 8 * 60 * 60 * 1000 // UTC+8
+  const dashboardUrl = c.env.DASHBOARD_URL?.trim() || 'https://accounting-dashboard-bgf.pages.dev'
   
   // 1. Authentication
   bot.use(async (ctx, next) => {
@@ -151,7 +153,16 @@ app.post('/webhook/telegram', async (c) => {
 - 「刪掉這筆」
 系統就會自動幫你精準修改該筆紀錄！
     `.trim()
-    await ctx.reply(helpText, { parse_mode: "Markdown" })
+    const finalHelpText = `${helpText}\n/dashboard - 開啟記帳 Dashboard`
+    await ctx.reply(finalHelpText, { parse_mode: "Markdown" })
+  })
+
+  bot.command('dashboard', async (ctx) => {
+    const keyboard = new InlineKeyboard().url('開啟 Dashboard', dashboardUrl)
+    await ctx.reply(
+      `請點下方按鈕開啟 Dashboard：\n${dashboardUrl}\n\n若尚未登入，Cloudflare Access 會先要求你登入。`,
+      { reply_markup: keyboard }
+    )
   })
 
   bot.command('summary', async (ctx) => {

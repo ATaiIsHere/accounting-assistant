@@ -73,6 +73,7 @@ async function run() {
         { command: "help", "description": "顯示使用說明與所有指令" },
         { command: "summary", "description": "查看本月累積花費" },
         { command: "categories", "description": "列出目前所有分類" },
+        { command: "dashboard", "description": "開啟記帳 Dashboard" },
         { command: "export", "description": "匯出所有帳目(CSV)" }
       ]
     };

@@ -68,6 +68,7 @@ npm install
 - `GEMINI_API_KEY`
 - `ALLOWED_USER_ID`
 - `DASHBOARD_PROXY_SECRET`
+- `DASHBOARD_URL`（可選，預設為目前的 Pages 網址）
 
 啟動 Worker：
 
@@ -176,6 +177,7 @@ npm run pages:deploy
 - `GEMINI_API_KEY`
 - `ALLOWED_USER_ID`
 - `DASHBOARD_PROXY_SECRET`
+- `DASHBOARD_URL`（可選）
 
 ### Pages secrets
 
