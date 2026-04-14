@@ -1,237 +1,253 @@
 # Accounting Assistant
 
-`Accounting Assistant` 是一個以 Cloudflare 為核心的個人記帳系統，目前包含三個主要部分：
-
-- `src/`：主後端 Worker，負責 Telegram webhook、Dashboard API 與未來 AI tools 的共用入口
-- `dashboard/`：`React + Vite + Cloudflare Pages` 前端，透過 Pages Functions 代理同網域 `/api/*`
-- `tests/`：後端 Worker 的 Vitest 測試
-
-目前正式環境的設計重點是：
-
-- 帳務與分類資料仍集中在同一個 `accounting-assistant` Worker
-- Dashboard 走 `Pages + Functions proxy`，不直接從瀏覽器跨網域打 Worker
-- Dashboard API 需要 `DASHBOARD_PROXY_SECRET`
-- Pages 站點需要搭配 Cloudflare Access / Zero Trust 才會對外提供內容
+Telegram 記帳助理，後端部署在 Cloudflare Workers，前端 Dashboard 部署在 Cloudflare Pages，資料存放於 Cloudflare D1。
 
 ## 專案結構
 
 ```text
-accounting-assistant/
-|-- src/                  Worker 入口、路由與核心邏輯
-|-- src/core/             資料庫與 AI 相關共用邏輯
-|-- dashboard/            React 前端與 Pages Functions
-|-- tests/                Worker 測試
-|-- scripts/              Worker 部署與初始化腳本
-|-- schema.sql            D1 schema
-`-- wrangler.jsonc        Worker 設定
+.
+|-- dashboard/              React Dashboard
+|-- infra/terraform/        Cloudflare IaC
+|-- openspec/               OpenSpec changes 與 specs
+|-- scripts/                deploy / provision / setup scripts
+|-- src/                    Worker 原始碼
+|-- tests/                  Worker tests
+|-- schema.sql              D1 schema
+|-- wrangler.jsonc          Worker 設定
+|-- package.json            根目錄 scripts
 ```
 
-## 技術組成
+## 主要技術
 
-- 後端：Cloudflare Workers + Hono
-- 資料庫：Cloudflare D1
-- Bot：GrammY
-- AI 解析：Gemini
-- Dashboard：React 19 + Vite + Cloudflare Pages + Pages Functions
-
-## 開發需求
-
-- Node.js 20+
-- npm
-- 已登入的 Wrangler
-- Cloudflare D1 database
-- Telegram Bot Token
-- Gemini API Key
-
-## 快速開始
-
-先安裝根目錄依賴：
-
-```bash
-npm install
-```
-
-再安裝 dashboard 依賴：
-
-```bash
-cd dashboard
-npm install
-```
+- Cloudflare Workers
+- Cloudflare D1
+- Cloudflare Pages
+- Cloudflare Access
+- React 19 + Vite
+- Terraform
+- Vitest
 
 ## 本機開發
 
-### 1. 啟動後端 Worker
+安裝依賴：
 
-根目錄建立 `.dev.vars`，至少準備下列變數：
+```bash
+npm ci
+npm ci --prefix dashboard
+```
 
-- `TELEGRAM_BOT_TOKEN`
-- `GEMINI_API_KEY`
-- `ALLOWED_USER_ID`
-- `DASHBOARD_PROXY_SECRET`
-- `DASHBOARD_URL`（可選，預設為目前的 Pages 網址）
-
-啟動 Worker：
+啟動 Worker 本機開發：
 
 ```bash
 npm run dev
 ```
 
-### 2. 啟動 Dashboard
-
-在 `dashboard/` 目錄建立 `.dev.vars`，可從 `.dev.vars.example` 複製：
+執行測試：
 
 ```bash
-cd dashboard
-Copy-Item .dev.vars.example .dev.vars
+npm test
 ```
 
-至少設定：
-
-- `API_BASE_URL`
-- `DASHBOARD_PROXY_SECRET`
-
-本機建議：
-
-```text
-API_BASE_URL=http://127.0.0.1:8787
-```
-
-啟動前端開發伺服器：
+Dashboard 檢查與建置：
 
 ```bash
-npm run dev
+npm --prefix dashboard run lint
+npm --prefix dashboard run build
 ```
 
-如果要連同 Pages Functions 一起模擬，請用：
+## 單一部署入口
 
-```bash
-npm run pages:dev
-```
-
-說明：
-
-- `npm run dev` 適合純 UI 開發，速度最快
-- `npm run pages:dev` 會模擬正式的 `/api/*` proxy 行為
-- localhost 會自動略過 Cloudflare Access JWT 驗證，方便本機開發
-
-## 測試與驗證
-
-後端測試：
-
-```bash
-npm run test
-```
-
-Dashboard 檢查：
-
-```bash
-cd dashboard
-npm run lint
-npm run build
-```
-
-目前 repository 內還沒有 dashboard 專屬的自動化 UI 測試，所以目前以：
-
-- `npm run test`
-- `cd dashboard && npm run lint`
-- `cd dashboard && npm run build`
-
-作為主要驗證流程。
-
-## 部署
-
-### 最簡單的部署流程
-
-如果 Cloudflare 資源都已經先建好，平常部署只要兩步：
-
-1. 部署後端 Worker
-2. 部署 Dashboard Pages
-
-### 1. 部署 Worker
-
-在根目錄執行：
+部署流程已收斂為單一入口：
 
 ```bash
 npm run deploy
 ```
 
-這個腳本會部署 `accounting-assistant` Worker，並更新 Telegram webhook。
+這個入口會固定執行：
 
-### 2. 部署 Dashboard
-
-在 `dashboard/` 目錄執行：
-
-```bash
-npm run pages:deploy
+```text
+preflight
+-> provision
+-> deploy
+-> post-deploy
 ```
 
-目前 Pages 專案名稱為 `accounting-dashboard`。
+如果缺少 Cloudflare 長期資源，流程會先進入 provision；如果資源已存在但尚未被 Terraform state 接管，流程會停止並提示先做 adopt/import。
 
-## 一次性設定
+常用 scripts：
 
-### Worker secrets
+- `npm run setup`：相容舊入口，內部仍走共享 provisioning 流程
+- `npm run provision`：只做 provision
+- `npm run deploy`：完整部署
+- `npm run deploy:worker`：只部署 Worker
+- `npm run deploy:dashboard`：只部署 Dashboard
+- `npm run deploy:ci`：CI 用完整部署入口
+- `npm run infra:plan`：執行 Terraform plan
+- `npm run infra:apply`：執行 Terraform apply
 
-後端 Worker 至少需要：
+## Provisioning 與 IaC
+
+這個專案採混合式部署：
+
+- Terraform 管理長期 Cloudflare 資源
+- Wrangler / Cloudflare API 管理 secrets 與實際 deploy
+
+目前 Terraform 負責：
+
+- D1 database
+- Cloudflare Pages project
+- Cloudflare Access application / policy
+
+目前不放進 Terraform state 的內容：
+
+- Worker secrets
+- Pages secrets
+- Worker / Pages deploy artifact
+
+如需直接操作 Terraform：
+
+```bash
+cd infra/terraform
+terraform init
+terraform plan
+terraform apply
+```
+
+平常建議直接用根目錄 scripts：
+
+```bash
+npm run infra:plan
+npm run infra:apply
+```
+
+## 必要設定與 Secrets
+
+### Cloudflare / IaC
+
+- `CLOUDFLARE_API_TOKEN`
+- `CLOUDFLARE_ACCOUNT_ID`
+- `CLOUDFLARE_ACCESS_ALLOWED_EMAILS` 或 `CLOUDFLARE_ACCESS_ALLOWED_EMAIL_DOMAINS`
+
+常用非 secret 參數：
+
+- `D1_DATABASE_NAME`
+- `PAGES_PROJECT_NAME`
+- `PAGES_PRODUCTION_BRANCH`
+- `DASHBOARD_DOMAIN`
+
+### Cloudflare API Token 建立方式
+
+可以先用 Cloudflare Dashboard 的 API token template URL 預填表單，再手動完成建立。template URL 只會預填欄位，不會直接建立 token。
+
+目前實測結果是：
+
+- `D1 > Edit` 可以透過 template URL 預填
+- `Cloudflare Pages > Write` 也可以透過 template URL 預填，對應 key 是 `page`
+
+[Open Cloudflare token template](https://dash.cloudflare.com/?to=/:account/api-tokens&permissionGroupKeys=%5B%7B%22key%22%3A%22workers_scripts%22%2C%22type%22%3A%22edit%22%7D%2C%7B%22key%22%3A%22account_settings%22%2C%22type%22%3A%22read%22%7D%2C%7B%22key%22%3A%22access%22%2C%22type%22%3A%22edit%22%7D%2C%7B%22key%22%3A%22access_acct%22%2C%22type%22%3A%22edit%22%7D%2C%7B%22key%22%3A%22page%22%2C%22type%22%3A%22edit%22%7D%2C%7B%22key%22%3A%22d1%22%2C%22type%22%3A%22edit%22%7D%5D&name=Accounting%20Assistant%20Deploy%20Token)
+
+打開後請確認畫面中已預填：
+
+- `Cloudflare Pages > Write`
+- `D1 > Edit`
+
+最後這顆 token 應具備以下權限：
+
+- `Workers Scripts > Write`
+- `Account Settings > Read`
+- `Access applications > Edit`
+- `Access organizations > Edit`
+- `Cloudflare Pages > Write`
+- `D1 > Edit`
+
+建立時請注意：
+
+- `Account Resources` 只選此專案所在的 account，不要選 `All accounts`
+- 建好後把 token 放到根目錄 `.dev.vars` 或 GitHub Actions secrets，名稱是 `CLOUDFLARE_API_TOKEN`
+- `CLOUDFLARE_ACCOUNT_ID` 可在 Cloudflare Dashboard 的 Overview 頁找到
+
+### Worker
 
 - `TELEGRAM_BOT_TOKEN`
 - `GEMINI_API_KEY`
 - `ALLOWED_USER_ID`
 - `DASHBOARD_PROXY_SECRET`
-- `DASHBOARD_URL`（可選）
+- `DASHBOARD_URL`
 
-### Pages secrets
-
-Dashboard 的 Pages 專案至少需要：
+### Dashboard / Pages
 
 - `API_BASE_URL`
 - `DASHBOARD_PROXY_SECRET`
 - `CLOUDFLARE_ACCESS_TEAM_DOMAIN`
 - `CLOUDFLARE_ACCESS_AUD`
 
-範例：
+可放置位置：
+
+- 根目錄 `.dev.vars`
+- `dashboard/.dev.vars`
+
+兩邊都會讀取的共用值：
+
+- `DASHBOARD_PROXY_SECRET`
+- `DASHBOARD_URL`
+- `API_BASE_URL`
+
+## Adopt / Import 既有資源
+
+如果 Cloudflare 上已經有既有的 D1、Pages project 或 Access application，但 Terraform state 尚未接管，`npm run deploy` 會停止，避免直接覆蓋現有設定。
+
+處理方式：
+
+1. 先看 [infra/terraform/README.md](/d:/ATai/Documents/AI/accounting-assistant/infra/terraform/README.md) 內對應的 Terraform address
+2. 使用 `terraform import` 將既有資源納入 state
+3. 再重新執行 `npm run deploy`
+
+常見 Terraform addresses：
+
+- `cloudflare_d1_database.primary[0]`
+- `cloudflare_pages_project.dashboard[0]`
+- `cloudflare_zero_trust_access_application.dashboard[0]`
+- `cloudflare_zero_trust_access_policy.dashboard_allow[0]`
+
+## 驗證
+
+Worker：
 
 ```bash
-cd dashboard
-echo https://accounting-assistant.tai-accouting.workers.dev | npx wrangler pages secret put API_BASE_URL --project-name accounting-dashboard
+npm test
 ```
 
-說明：
+Dashboard：
 
-- `API_BASE_URL`：後端 Worker URL
-- `DASHBOARD_PROXY_SECRET`：必須與 Worker 端完全一致
-- `CLOUDFLARE_ACCESS_TEAM_DOMAIN`：你的 Access team domain，例如 `https://<team>.cloudflareaccess.com`
-- `CLOUDFLARE_ACCESS_AUD`：對應 Dashboard Access application 的 audience
+```bash
+npm --prefix dashboard run lint
+npm --prefix dashboard run build
+```
 
-如果更新了 Pages secrets，請重新部署一次 Pages，新的 deployment 才會吃到變更。
+## GitHub Actions
 
-## Zero Trust / Access
+repo 內建的 [deploy.yml](/d:/ATai/Documents/AI/accounting-assistant/.github/workflows/deploy.yml) 目前分成三段：
 
-目前正式站採用 fail-closed 設計：
+- `validate`：執行 Worker tests、Dashboard lint、Dashboard build
+- `infra-plan`：執行 Terraform plan
+- `deploy`：在 `main` 分支執行 `npm run deploy:ci`
 
-- 沒有正確的 `DASHBOARD_PROXY_SECRET`，Worker API 會拒絕 dashboard 請求
-- 沒有有效的 Cloudflare Access JWT，Pages 會拒絕請求
-- 如果 production 沒設定 `CLOUDFLARE_ACCESS_TEAM_DOMAIN` 與 `CLOUDFLARE_ACCESS_AUD`，Pages 會回 `503`，不會公開提供 dashboard
+需要設定的 GitHub Secrets：
 
-建議的正式環境流量路徑如下：
+- `CLOUDFLARE_API_TOKEN`
+- `CLOUDFLARE_ACCOUNT_ID`
+- `CLOUDFLARE_ACCESS_TEAM_DOMAIN`
+- `CLOUDFLARE_ACCESS_ALLOWED_EMAILS` 或 `CLOUDFLARE_ACCESS_ALLOWED_EMAIL_DOMAINS`
+- `TELEGRAM_BOT_TOKEN`
+- `GEMINI_API_KEY`
+- `ALLOWED_USER_ID`
+- `DASHBOARD_PROXY_SECRET`
 
-1. 使用者先登入 Cloudflare Access
-2. 通過後才能進入 Pages 網站
-3. 前端呼叫同網域 `/api/*`
-4. Pages Functions 以 `DASHBOARD_PROXY_SECRET` 代理到後端 Worker
-5. Worker 處理帳務與分類 CRUD
+常用 GitHub Variables：
 
-## 目前狀態
-
-目前已完成：
-
-- Dashboard 從 Next.js 改為 `React + Vite + Cloudflare Pages`
-- Pages Functions 同網域 proxy
-- Worker 端 `DASHBOARD_PROXY_SECRET` 保護
-- Pages 端 Cloudflare Access JWT 驗證
-- 基本的 dashboard 查詢邏輯已開始抽到 `src/core/db.ts`
-
-目前尚未完善，後續會再繼續整理：
-
-1. 佈署方式再簡化
-2. 共用邏輯再往 service layer 收斂
-3. agentic AI 架構與 tools 整理
+- `DASHBOARD_DOMAIN`
+- `DASHBOARD_URL`
+- `API_BASE_URL`
+- `D1_DATABASE_NAME`
+- `PAGES_PROJECT_NAME`
+- `PAGES_PRODUCTION_BRANCH`

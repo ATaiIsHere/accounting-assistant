@@ -1,0 +1,23 @@
+cloudflare_account_id = "your-account-id"
+d1_database_name      = "accounting-db"
+pages_project_name    = "accounting-dashboard"
+pages_production_branch = "main"
+
+# dashboard_domain 說明：
+#
+# [使用 *.pages.dev（預設）]
+#   不需要填寫此欄位。
+#   腳本佈署後會自動從 terraform output 取得真實 subdomain（如 accounting-dashboard-abc.pages.dev），
+#   並用它來建立 Cloudflare Access 規則。
+#
+# [使用自訂 domain]
+#   填入你在 Cloudflare 管理的 domain，Terraform 會直接用它建立 Access 保護：
+#   dashboard_domain = "dashboard.yourdomain.com"
+
+dashboard_access_application_name = "Accounting Assistant Dashboard"
+dashboard_access_allowed_emails = [
+  "you@example.com",
+]
+dashboard_access_allowed_email_domains = [
+  "example.com",
+]

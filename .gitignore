@@ -14,6 +14,16 @@ dist/
 # deps
 node_modules/
 .wrangler
+.terraform/
+*.tfstate
+*.tfstate.*
+*.tfplan
+infra/terraform/.terraform.lock.hcl
+infra/terraform/*.auto.tfvars
+infra/terraform/*.auto.tfvars.json
+infra/terraform/terraform.tfvars
+*.tfvars
+
 
 # env
 .env

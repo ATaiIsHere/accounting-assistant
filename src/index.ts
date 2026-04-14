@@ -119,7 +119,7 @@ app.post('/webhook/telegram', async (c) => {
   })
   const db = new CoreDB(c.env.DB)
   const TIMEZONE_OFFSET = 8 * 60 * 60 * 1000 // UTC+8
-  const dashboardUrl = c.env.DASHBOARD_URL?.trim() || 'https://accounting-dashboard-bgf.pages.dev'
+  const dashboardUrl = c.env.DASHBOARD_URL?.trim()
   
   // 1. Authentication
   bot.use(async (ctx, next) => {

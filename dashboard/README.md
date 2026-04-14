@@ -1,178 +1,82 @@
 # Dashboard
 
-This folder contains the Accounting Assistant dashboard.
+Accounting Assistant 的前端 Dashboard，使用 React + Vite 建置，部署到 Cloudflare Pages。
 
-It is now a:
-
-- `React + Vite` single-page app
-- deployed on **Cloudflare Pages**
-- backed by **Pages Functions** for same-origin `/api/*` proxying
-- connected to the existing `accounting-assistant` Worker for accounting data
-
-## Folder layout
+## 結構
 
 ```text
 dashboard/
 |-- src/                  React UI
-|-- functions/api/        Pages Functions proxy + session helpers
-|-- public/               Static assets and SPA redirects
-|-- vite.config.ts        Vite config
-|-- wrangler.toml         Pages output config
-`-- .dev.vars.example     Local Pages Functions env example
+|-- functions/            Pages Functions middleware 與 API proxy
+|-- public/               靜態資源
+|-- wrangler.toml         Pages project 設定
+`-- .dev.vars             Pages Functions 本機設定
 ```
 
-## Development
+## 開發
 
-Install dependencies:
+安裝依賴：
 
 ```bash
 npm install
 ```
 
-Run the frontend-only dev server:
+啟動前端：
 
 ```bash
 npm run dev
 ```
 
-This is fastest for UI work, but it does not emulate Pages Functions.
-
-## Local Pages preview
-
-If you want the real Pages behaviour, including `/api/*` proxying:
-
-1. Copy the example env file:
-
-```bash
-Copy-Item .dev.vars.example .dev.vars
-```
-
-2. Start the local Pages preview:
+如需連同 Pages Functions 一起本機驗證：
 
 ```bash
 npm run pages:dev
 ```
 
-Required local variable:
+## 必要設定
 
-- `API_BASE_URL`: the deployed `accounting-assistant` Worker URL
-- `DASHBOARD_PROXY_SECRET`: must match the Worker secret exactly
-
-Localhost bypasses Access JWT enforcement automatically, so you do not need Access env vars for normal local UI work.
-
-## Testing and validation
-
-Lint:
-
-```bash
-npm run lint
-```
-
-Production build:
-
-```bash
-npm run build
-```
-
-At the moment there are no dashboard-specific automated UI tests in this folder, so lint + build are the main validation steps.
-
-## Deployment
-
-Deploy to the existing Cloudflare Pages project:
-
-```bash
-npm run pages:deploy
-```
-
-The Pages project must have this runtime secret:
+放在 `dashboard/.dev.vars` 或由根目錄 deploy 流程同步：
 
 - `API_BASE_URL`
 - `DASHBOARD_PROXY_SECRET`
 
-To enforce Cloudflare Access inside Pages Functions, also configure:
+若使用 Cloudflare Access 自訂網域保護 Dashboard，另外需要：
 
 - `CLOUDFLARE_ACCESS_TEAM_DOMAIN`
 - `CLOUDFLARE_ACCESS_AUD`
 
-Example:
+## 部署
+
+建議從 repo 根目錄執行：
 
 ```bash
-echo https://accounting-assistant.tai-accouting.workers.dev | npx wrangler pages secret put API_BASE_URL --project-name accounting-dashboard
+npm run deploy
 ```
 
-## Zero Trust
+部署流程會：
 
-Recommended production setup:
+- 建立或同步 Pages project
+- 同步 `API_BASE_URL`
+- 同步 `DASHBOARD_PROXY_SECRET`
+- 視情況同步 Cloudflare Access 設定
+- build 並部署 Dashboard
 
-1. Protect the Pages domain with Cloudflare Access.
-2. Let Access handle the human login challenge.
-3. Let Pages Functions proxy `/api/*` to the Worker with the shared proxy secret.
-4. Keep the Worker as the shared backend for dashboard, bot, and future agent tools.
+## Cloudflare Access
 
-`functions/api/session.ts` is prepared to surface the Access user email once the Pages domain is protected and Cloudflare forwards the identity headers.
+Dashboard 對 Worker API 的保護分兩層：
 
-### Step-by-step setup
+- Pages Functions 到 Worker 使用 `DASHBOARD_PROXY_SECRET`
+- 自訂網域時，可再加上 Cloudflare Access 驗證終端使用者身份
 
-If you want "users must log in before they can open the dashboard", the practical setup is:
+目前行為如下：
 
-1. Open the Cloudflare Zero Trust dashboard.
-2. Go to `Access controls -> Applications`.
-3. Choose `Add an application`.
-4. Select `Self-hosted`.
-5. For the application domain, enter your Pages production domain.
+- 如果 Dashboard 網域是 `*.pages.dev`，deploy 會自動跳過 Cloudflare Access provisioning
+- 這種情況下 Dashboard 會是公開頁面，但 API 仍透過 `DASHBOARD_PROXY_SECRET` 保護
+- 如果你要真正啟用 Cloudflare Access，請改用屬於你 Cloudflare zone 的自訂網域
 
-Example:
+## 驗證
 
-- `accounting-dashboard-bgf.pages.dev`
-
-If you later bind a custom domain, protect that custom domain instead.
-
-6. Add an `Allow` policy.
-7. Choose who may sign in.
-
-Common options:
-
-- specific email addresses
-- emails ending in your company domain
-- your SSO / IdP group
-
-8. Choose the identity providers you want to allow.
-
-Examples:
-
-- One-time PIN
-- Google
-- GitHub
-- Microsoft Entra ID
-- Okta
-
-9. Save the Access application.
-
-After that, visiting the Pages site should redirect unauthenticated users to the Access login flow.
-
-### What this project already supports
-
-This project already has a small helper route:
-
-- `functions/api/session.ts`
-
-When Access is active and Cloudflare forwards identity headers, this route can return:
-
-- the authenticated user email
-- whether the site is currently behind Access
-
-### What this does now
-
-This project now validates the Cloudflare Access JWT inside `functions/_middleware.ts`.
-
-That means:
-
-- without `DASHBOARD_PROXY_SECRET`, the Worker API rejects dashboard requests
-- without a valid Access JWT, Pages rejects requests
-- without `CLOUDFLARE_ACCESS_TEAM_DOMAIN` and `CLOUDFLARE_ACCESS_AUD`, production Pages returns `503` instead of serving a public dashboard
-
-If you want stricter in-code verification, the next hardening step is to use:
-
-- `@cloudflare/pages-plugin-cloudflare-access`
-
-That plugin validates the Access JWT against your Access `domain` and application `aud` value.
+```bash
+npm run lint
+npm run build
+```

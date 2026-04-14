@@ -7,8 +7,7 @@
     "build": "vite build",
     "preview": "vite preview",
     "pages:dev": "npm run build && wrangler pages dev dist --project-name accounting-dashboard",
-    "pages:deploy": "npm run build && wrangler pages deploy dist --project-name accounting-dashboard",
-    "cf:deploy": "npm run pages:deploy",
+    "pages:deploy": "wrangler pages deploy dist --project-name accounting-dashboard",
     "lint": "eslint src functions vite.config.ts"
   },
   "dependencies": {

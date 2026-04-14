@@ -3,9 +3,17 @@
   "type": "module",
   "scripts": {
     "setup": "tsx scripts/setup.ts",
+    "provision": "tsx scripts/provision.ts",
     "dev": "wrangler dev",
     "deploy": "tsx scripts/deploy.ts",
+    "deploy:worker": "tsx scripts/deploy.ts worker",
+    "deploy:dashboard": "tsx scripts/deploy.ts dashboard",
+    "deploy:ci": "tsx scripts/deploy.ts all --ci",
     "deploy:staging": "wrangler deploy -e staging --minify",
+    "infra:plan": "tsx scripts/provision.ts --plan",
+    "infra:apply": "tsx scripts/provision.ts --apply",
+    "infra:import:d1": "tsx scripts/import-d1.ts",
+    "infra:destroy": "tsx scripts/destroy.ts",
     "cf-typegen": "wrangler types --env-interface CloudflareBindings",
     "test": "vitest"
   },

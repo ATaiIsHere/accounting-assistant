@@ -1,8 +1,6 @@
 import { runProvisionWorkflow } from './lib/deploy-shared'
 
-console.log('`npm run setup` 現在會走共用的 provisioning 流程。')
-
 runProvisionWorkflow(process.argv.slice(2)).catch((error) => {
-  console.error(`\nSetup failed: ${(error as Error).message}`)
+  console.error(`\nProvisioning failed: ${(error as Error).message}`)
   process.exitCode = 1
 })

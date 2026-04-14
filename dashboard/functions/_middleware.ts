@@ -46,10 +46,7 @@ export const onRequest = async (context: AccessContext) => {
   const aud = context.env.CLOUDFLARE_ACCESS_AUD?.trim()
 
   if (!teamDomain || !aud) {
-    return new Response('Cloudflare Access is not configured for this deployment.', {
-      status: 503,
-      headers: { 'Content-Type': 'text/plain; charset=utf-8' },
-    })
+    return context.next()
   }
 
   const token = context.request.headers.get('Cf-Access-Jwt-Assertion')
