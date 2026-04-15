@@ -1,6 +1,6 @@
 # Accounting Assistant
 
-Telegram 記帳助理，後端部署在 Cloudflare Workers，前端 Dashboard 部署在 Cloudflare Pages，資料存放於 Cloudflare D1。
+Telegram 記帳助理，支援個人與群組共同記帳。後端部署在 Cloudflare Workers，前端 Dashboard 部署在 Cloudflare Pages，資料存放於 Cloudflare D1。
 
 ## 專案結構
 
@@ -170,7 +170,7 @@ npm run infra:apply
 
 - `TELEGRAM_BOT_TOKEN`
 - `GEMINI_API_KEY`
-- `ALLOWED_USER_ID`
+- `ALLOWED_USER_ID`（允許使用 Bot 的 Telegram ID 列表，支援填入個人 ID 或群組 ID。多筆請用逗號分隔，例如：`12345678,-100987654321`）
 - `DASHBOARD_PROXY_SECRET`
 - `DASHBOARD_URL`
 

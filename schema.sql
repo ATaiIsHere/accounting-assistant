@@ -1,14 +1,16 @@
 -- 動態分類表
 CREATE TABLE IF NOT EXISTS categories (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
+    ledger_id TEXT NOT NULL,
     user_id TEXT NOT NULL,
     name TEXT NOT NULL,
-    UNIQUE(user_id, name)
+    UNIQUE(ledger_id, name)
 );
 
 -- 記帳草稿表 (處理 Inline Keyboard 的無狀態問題)
 CREATE TABLE IF NOT EXISTS pending_expenses (
     draft_id TEXT PRIMARY KEY,
+    ledger_id TEXT NOT NULL,
     user_id TEXT NOT NULL,
     date TEXT NOT NULL,
     item TEXT NOT NULL,
@@ -22,6 +24,7 @@ CREATE TABLE IF NOT EXISTS pending_expenses (
 -- 記帳主表
 CREATE TABLE IF NOT EXISTS expenses (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
+    ledger_id TEXT NOT NULL,
     user_id TEXT NOT NULL,
     date TEXT NOT NULL,
     item TEXT NOT NULL,

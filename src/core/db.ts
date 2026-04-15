@@ -2,6 +2,7 @@ import type { D1Database } from '@cloudflare/workers-types';
 
 export interface ExpenseData {
   id?: number;
+  ledger_id: string;
   user_id: string;
   date: string;
   item: string;
@@ -19,6 +20,7 @@ export interface QueryFilters {
 
 export interface PendingExpense {
   draft_id: string;
+  ledger_id: string;
   user_id: string;
   date: string;
   item: string;
@@ -44,48 +46,49 @@ export interface CategorySummaryRow {
 export class CoreDB {
   constructor(private db: D1Database) {}
 
-  async getCategories(userId: string): Promise<{ id: number; name: string }[]> {
+  async getCategories(ledgerId: string): Promise<{ id: number; name: string }[]> {
     const { results } = await this.db.prepare(
-      'SELECT id, name FROM categories WHERE user_id = ?'
-    ).bind(userId).all();
+      'SELECT id, name FROM categories WHERE ledger_id = ?'
+    ).bind(ledgerId).all();
     return (results || []) as { id: number; name: string }[];
   }
 
-  async getCategoryByName(userId: string, name: string): Promise<number | null> {
+  async getCategoryByName(ledgerId: string, name: string): Promise<number | null> {
     const category = await this.db.prepare(
-      'SELECT id FROM categories WHERE user_id = ? AND name = ?'
-    ).bind(userId, name).first();
+      'SELECT id FROM categories WHERE ledger_id = ? AND name = ?'
+    ).bind(ledgerId, name).first();
     return category ? (category.id as number) : null;
   }
 
-  async createCategory(userId: string, name: string): Promise<number> {
+  async createCategory(ledgerId: string, userId: string, name: string): Promise<number> {
     const { meta } = await this.db.prepare(
-      'INSERT INTO categories (user_id, name) VALUES (?, ?)'
-    ).bind(userId, name).run();
+      'INSERT INTO categories (ledger_id, user_id, name) VALUES (?, ?, ?)'
+    ).bind(ledgerId, userId, name).run();
     return meta.last_row_id as number;
   }
 
-  async deleteCategoryAndReassign(userId: string, oldCatId: number, newCatId: number | null): Promise<void> {
+  async deleteCategoryAndReassign(ledgerId: string, userId: string, oldCatId: number, newCatId: number | null): Promise<void> {
     let targetCatId = newCatId
     if (!targetCatId) {
-      let uncat = await this.getCategoryByName(userId, '未分類')
+      let uncat = await this.getCategoryByName(ledgerId, '未分類')
       if (!uncat) {
-        uncat = await this.createCategory(userId, '未分類')
+        uncat = await this.createCategory(ledgerId, userId, '未分類')
       }
       targetCatId = uncat
     }
 
     // Cloudflare D1 batch simulation of transaction
     await this.db.batch([
-      this.db.prepare('UPDATE expenses SET category_id = ? WHERE category_id = ? AND user_id = ?').bind(targetCatId, oldCatId, userId),
-      this.db.prepare('DELETE FROM categories WHERE id = ? AND user_id = ?').bind(oldCatId, userId)
+      this.db.prepare('UPDATE expenses SET category_id = ? WHERE category_id = ? AND ledger_id = ?').bind(targetCatId, oldCatId, ledgerId),
+      this.db.prepare('DELETE FROM categories WHERE id = ? AND ledger_id = ?').bind(oldCatId, ledgerId)
     ])
   }
 
   async insertExpense(expense: ExpenseData): Promise<number> {
     const { meta } = await this.db.prepare(
-      'INSERT INTO expenses (user_id, date, item, amount, category_id, raw_message, media_reference) VALUES (?, ?, ?, ?, ?, ?, ?)'
+      'INSERT INTO expenses (ledger_id, user_id, date, item, amount, category_id, raw_message, media_reference) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
     ).bind(
+      expense.ledger_id,
       expense.user_id,
       expense.date,
       expense.item,
@@ -99,9 +102,10 @@ export class CoreDB {
 
   async savePendingExpense(pending: PendingExpense): Promise<void> {
     await this.db.prepare(
-      'INSERT INTO pending_expenses (draft_id, user_id, date, item, amount, suggested_category, raw_message, media_reference) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
+      'INSERT INTO pending_expenses (draft_id, ledger_id, user_id, date, item, amount, suggested_category, raw_message, media_reference) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)'
     ).bind(
       pending.draft_id,
+      pending.ledger_id,
       pending.user_id,
       pending.date,
       pending.item,
@@ -125,14 +129,14 @@ export class CoreDB {
     ).bind(draftId).run();
   }
 
-  async updateExpenseAmount(id: number, amount: number, userId: string): Promise<boolean> {
+  async updateExpenseAmount(id: number, amount: number, ledgerId: string): Promise<boolean> {
     const { meta } = await this.db.prepare(
-      'UPDATE expenses SET amount = ? WHERE id = ? AND user_id = ?'
-    ).bind(amount, id, userId).run();
+      'UPDATE expenses SET amount = ? WHERE id = ? AND ledger_id = ?'
+    ).bind(amount, id, ledgerId).run();
     return meta.changes ? meta.changes > 0 : false;
   }
 
-  async updateExpense(id: number, userId: string, updates: Partial<ExpenseData>): Promise<boolean> {
+  async updateExpense(id: number, ledgerId: string, updates: Partial<ExpenseData>): Promise<boolean> {
     const sets: string[] = []
     const params: any[] = []
 
@@ -143,48 +147,48 @@ export class CoreDB {
 
     if (sets.length === 0) return false;
 
-    const sql = `UPDATE expenses SET ${sets.join(', ')} WHERE id = ? AND user_id = ?`
-    params.push(id, userId)
+    const sql = `UPDATE expenses SET ${sets.join(', ')} WHERE id = ? AND ledger_id = ?`
+    params.push(id, ledgerId)
 
     const { meta } = await this.db.prepare(sql).bind(...params).run()
     return meta.changes ? meta.changes > 0 : false;
   }
 
-  async getExpense(id: number, userId: string): Promise<ExpenseData | null> {
+  async getExpense(id: number, ledgerId: string): Promise<ExpenseData | null> {
     const result = await this.db.prepare(
-      'SELECT * FROM expenses WHERE id = ? AND user_id = ?'
-    ).bind(id, userId).first();
+      'SELECT * FROM expenses WHERE id = ? AND ledger_id = ?'
+    ).bind(id, ledgerId).first();
     return result as ExpenseData | null;
   }
 
-  async deleteExpense(id: number, userId: string): Promise<boolean> {
+  async deleteExpense(id: number, ledgerId: string): Promise<boolean> {
     const { meta } = await this.db.prepare(
-      'DELETE FROM expenses WHERE id = ? AND user_id = ?'
-    ).bind(id, userId).run();
+      'DELETE FROM expenses WHERE id = ? AND ledger_id = ?'
+    ).bind(id, ledgerId).run();
     return meta.changes ? meta.changes > 0 : false;
   }
 
-  async getMonthlySummary(userId: string, prefixDate: string): Promise<number> {
+  async getMonthlySummary(ledgerId: string, prefixDate: string): Promise<number> {
     const result = await this.db.prepare(
-      "SELECT SUM(amount) as total FROM expenses WHERE user_id = ? AND date LIKE ?"
-    ).bind(userId, `${prefixDate}%`).first();
+      "SELECT SUM(amount) as total FROM expenses WHERE ledger_id = ? AND date LIKE ?"
+    ).bind(ledgerId, `${prefixDate}%`).first();
     return (result?.total as number) || 0;
   }
 
-  async getAllExpenses(userId: string): Promise<any[]> {
+  async getAllExpenses(ledgerId: string): Promise<any[]> {
     const { results } = await this.db.prepare(`
       SELECT e.id, e.date, e.item, e.amount, c.name as category_name, e.raw_message 
       FROM expenses e
       JOIN categories c ON e.category_id = c.id
-      WHERE e.user_id = ?
+      WHERE e.ledger_id = ?
       ORDER BY e.date DESC, e.id DESC
-    `).bind(userId).all();
+    `).bind(ledgerId).all();
     return results || [];
   }
 
-  async listExpenses(userId: string, filters: QueryFilters): Promise<ExpenseRow[]> {
-    const conditions = ['e.user_id = ?']
-    const params: Array<string | number> = [userId]
+  async listExpenses(ledgerId: string, filters: QueryFilters): Promise<ExpenseRow[]> {
+    const conditions = ['e.ledger_id = ?']
+    const params: Array<string | number> = [ledgerId]
 
     if (filters.start_date) {
       conditions.push('e.date >= ?')
@@ -218,7 +222,7 @@ export class CoreDB {
     return (results || []) as ExpenseRow[]
   }
 
-  async getCategorySummaryByMonth(userId: string, year: string, month: string): Promise<CategorySummaryRow[]> {
+  async getCategorySummaryByMonth(ledgerId: string, year: string, month: string): Promise<CategorySummaryRow[]> {
     const prefix = `${year}-${month.padStart(2, '0')}`
     const { results } = await this.db.prepare(`
       SELECT
@@ -226,17 +230,17 @@ export class CoreDB {
         SUM(e.amount) AS total
       FROM expenses e
       JOIN categories c ON e.category_id = c.id
-      WHERE e.user_id = ? AND e.date LIKE ?
+      WHERE e.ledger_id = ? AND e.date LIKE ?
       GROUP BY c.id, c.name
       ORDER BY total DESC, c.name ASC
-    `).bind(userId, `${prefix}%`).all<CategorySummaryRow>()
+    `).bind(ledgerId, `${prefix}%`).all<CategorySummaryRow>()
 
     return (results || []) as CategorySummaryRow[]
   }
 
-  async queryExpenses(userId: string, filters: QueryFilters): Promise<string> {
-    const conditions = ['e.user_id = ?']
-    const params: any[] = [userId]
+  async queryExpenses(ledgerId: string, filters: QueryFilters): Promise<string> {
+    const conditions = ['e.ledger_id = ?']
+    const params: any[] = [ledgerId]
 
     if (filters.start_date) {
       conditions.push('e.date >= ?')
@@ -249,8 +253,8 @@ export class CoreDB {
     
     let categoryPrefix = ''
     if (filters.category_name) {
-      const cat = await this.db.prepare('SELECT id FROM categories WHERE user_id = ? AND name = ?')
-        .bind(userId, filters.category_name)
+      const cat = await this.db.prepare('SELECT id FROM categories WHERE ledger_id = ? AND name = ?')
+        .bind(ledgerId, filters.category_name)
         .first<{ id: number }>()
       if (cat) {
         conditions.push('e.category_id = ?')
@@ -297,3 +301,4 @@ export class CoreDB {
     return `${title}共 ${count} 筆消費，總計：$${total}${groupReport}`
   }
 }
+

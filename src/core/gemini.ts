@@ -1,3 +1,5 @@
+import { Buffer } from 'node:buffer';
+
 export async function processExpenseWithGemini(
   apiKey: string,
   categories: string[],
@@ -58,19 +60,15 @@ export async function processExpenseWithGemini(
 - 如果輸入包含照片，請優先透過視覺能力辨識收據或發票中的總額與品項，並將文字做為輔助。
 `
 
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-lite-preview:generateContent?key=${apiKey}`
   
   let parts: any[] = []
   if (textInput) {
     parts.push({ text: textInput })
   }
   if (imageBuffer && imageMimeType) {
-    const uint8Array = new Uint8Array(imageBuffer)
-    let binaryString = ""
-    for (let i = 0; i < uint8Array.length; i++) {
-        binaryString += String.fromCharCode(uint8Array[i])
-    }
-    const base64Image = btoa(binaryString)
+    // 使用 Node 原生 Buffer 以避免 JavaScript 的迴圈計算拖垮 CPU Limit (Cloudflare 免費方案 CPU 上限為 10ms)
+    const base64Image = Buffer.from(imageBuffer).toString('base64')
     parts.push({
       inline_data: {
         mime_type: imageMimeType,
@@ -90,11 +88,20 @@ export async function processExpenseWithGemini(
     }
   }
 
-  const response = await fetch(url, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(payload)
-  })
+  let response;
+  try {
+    response = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+      signal: AbortSignal.timeout(8000)
+    })
+  } catch (e: any) {
+    if (e.name === 'TimeoutError' || e.name === 'AbortError') {
+      throw new Error('Gemini API timeout')
+    }
+    throw e;
+  }
 
   if (!response.ok) {
     const errText = await response.text()
@@ -118,16 +125,22 @@ export async function processExpenseWithGemini(
 }
 
 export async function extractAmountOnly(apiKey: string, text: string): Promise<number | null> {
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-lite-preview:generateContent?key=${apiKey}`
   const payload = {
     contents: [ { parts: [{ text: `請從以下句子中提取出欲修改的"新金額"數字，不要回傳任何前後綴或符號，只要純數字。若無法判斷請回傳 ERROR。輸入：${text}` }] } ],
     generationConfig: { temperature: 0.1 }
   }
-  const response = await fetch(url, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(payload)
-  })
+  let response;
+  try {
+    response = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+      signal: AbortSignal.timeout(8000)
+    })
+  } catch (e: any) {
+    return null;
+  }
   if (!response.ok) return null;
   const data = await response.json() as any
   const answer = data.candidates?.[0]?.content?.parts?.[0]?.text
@@ -142,7 +155,7 @@ export async function processExpenseUpdateWithGemini(
   text: string,
   oldRecord: any
 ): Promise<Partial<{ date: string, item: string, amount: number, suggested_category: string }>> {
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-lite-preview:generateContent?key=${apiKey}`
   const systemInstruction = `
 你是一個專業的私人記帳助理。現在使用者的某一筆舊帳目需要修改。
 請根據使用者的修改指令，判斷他究竟想要修改哪些欄位（日期、品項名稱、金額、分類），並回傳**嚴格的 JSON 格式**（千萬不要包含 markdown 或\`\`\`標籤）。
@@ -173,7 +186,15 @@ ${JSON.stringify(oldRecord, null, 2)}
     generationConfig: { response_mime_type: "application/json", temperature: 0.1 }
   }
 
-  const response = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) })
+  let response;
+  try {
+    response = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload), signal: AbortSignal.timeout(8000) })
+  } catch (e: any) {
+    if (e.name === 'TimeoutError' || e.name === 'AbortError') {
+      throw new Error('Gemini API timeout')
+    }
+    return {};
+  }
   if (!response.ok) return {};
   const data = await response.json() as any
   const answer = data.candidates?.[0]?.content?.parts?.[0]?.text

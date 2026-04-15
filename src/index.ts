@@ -1,19 +1,38 @@
 import { Hono } from 'hono'
 import { Bot, InlineKeyboard, InputFile } from 'grammy'
 import { CoreDB } from './core/db'
-import { processExpenseWithGemini, extractAmountOnly, processExpenseUpdateWithGemini } from './core/gemini'
+import { processExpenseWithGemini, processExpenseUpdateWithGemini } from './core/gemini'
 import type { D1Database } from '@cloudflare/workers-types'
 
 export type Bindings = {
   TELEGRAM_BOT_TOKEN: string
   GEMINI_API_KEY: string
-  ALLOWED_USER_ID: string
+  ALLOWED_USER_ID: string // Comma separated list of allowed IDs
   DASHBOARD_PROXY_SECRET: string
   DASHBOARD_URL?: string
   DB: D1Database
 }
 
 const app = new Hono<{ Bindings: Bindings }>()
+
+const getAllowedIds = (env: Bindings) => {
+  if (!env.ALLOWED_USER_ID) return [];
+  return env.ALLOWED_USER_ID.split(',').map(id => id.trim()).filter(id => id);
+}
+
+const getDashboardLedger = (c: any) => {
+  const allowed = getAllowedIds(c.env);
+  const requested = c.req.query('ledger_id');
+  if (requested && allowed.includes(requested)) return requested;
+  return allowed[0] || '';
+}
+
+const getLedgerInfo = (ctx: any, env: Bindings) => {
+  const fromId = ctx.from?.id.toString() || '';
+  const chatId = ctx.chat?.id.toString() || '';
+  const ledger_id = (ctx.chat?.type === 'group' || ctx.chat?.type === 'supergroup') ? chatId : fromId;
+  return { ledger_id, user_id: fromId };
+}
 
 app.get('/', (c) => c.text('Accounting Assistant Webhook is running!'))
 
@@ -50,8 +69,9 @@ api.use('*', apiAuth)
 // GET /api/expenses?start=&end=&category=
 api.get('/expenses', async (c) => {
   const db = new CoreDB(c.env.DB)
+  const ledgerId = getDashboardLedger(c);
   const { start, end, category } = c.req.query()
-  const expenses = await db.listExpenses(c.env.ALLOWED_USER_ID, {
+  const expenses = await db.listExpenses(ledgerId, {
     start_date: start,
     end_date: end,
     category_name: category
@@ -62,17 +82,19 @@ api.get('/expenses', async (c) => {
 // DELETE /api/expenses/:id
 api.delete('/expenses/:id', async (c) => {
   const db = new CoreDB(c.env.DB)
+  const ledgerId = getDashboardLedger(c);
   const id = parseInt(c.req.param('id'))
-  await db.deleteExpense(id, c.env.ALLOWED_USER_ID)
+  await db.deleteExpense(id, ledgerId)
   return c.json({ ok: true })
 })
 
 // GET /api/summary?year=&month=
 api.get('/summary', async (c) => {
   const db = new CoreDB(c.env.DB)
+  const ledgerId = getDashboardLedger(c);
   const { year, month } = c.req.query()
   const result = await db.getCategorySummaryByMonth(
-    c.env.ALLOWED_USER_ID,
+    ledgerId,
     year ?? '',
     month ?? ''
   )
@@ -82,17 +104,20 @@ api.get('/summary', async (c) => {
 // GET /api/categories
 api.get('/categories', async (c) => {
   const db = new CoreDB(c.env.DB)
-  const cats = await db.getCategories(c.env.ALLOWED_USER_ID)
+  const ledgerId = getDashboardLedger(c);
+  const cats = await db.getCategories(ledgerId)
   return c.json(cats)
 })
 
 // DELETE /api/categories/:id?replace=
 api.delete('/categories/:id', async (c) => {
   const db = new CoreDB(c.env.DB)
+  const ledgerId = getDashboardLedger(c);
+  const userId = "dashboard";
   const id = parseInt(c.req.param('id'))
   const replaceId = parseInt(c.req.query('replace') ?? '0')
   if (!replaceId) return c.json({ error: 'replace param required' }, 400)
-  await db.deleteCategoryAndReassign(id, replaceId, c.env.ALLOWED_USER_ID)
+  await db.deleteCategoryAndReassign(ledgerId, userId, id, replaceId)
   return c.json({ ok: true })
 })
 // ─── End Dashboard API ────────────────────────────────────────────────────────
@@ -119,11 +144,17 @@ app.post('/webhook/telegram', async (c) => {
   })
   const db = new CoreDB(c.env.DB)
   const TIMEZONE_OFFSET = 8 * 60 * 60 * 1000 // UTC+8
-  const dashboardUrl = c.env.DASHBOARD_URL?.trim()
+  const dashboardUrl = c.env.DASHBOARD_URL?.trim() || 'https://accounting-dashboard-bgf.pages.dev'
   
   // 1. Authentication
   bot.use(async (ctx, next) => {
-    if (ctx.from?.id.toString() !== c.env.ALLOWED_USER_ID) return
+    const allowed = getAllowedIds(c.env);
+    const fromId = ctx.from?.id.toString() || '';
+    const chatId = ctx.chat?.id.toString() || '';
+    
+    if (!allowed.includes(fromId) && !allowed.includes(chatId)) {
+      return;
+    }
     await next()
   })
 
@@ -166,14 +197,16 @@ app.post('/webhook/telegram', async (c) => {
   })
 
   bot.command('summary', async (ctx) => {
+    const { ledger_id } = getLedgerInfo(ctx, c.env);
     const now = new Date(Date.now() + TIMEZONE_OFFSET)
     const monthPrefix = now.toISOString().slice(0, 7)
-    const total = await db.getMonthlySummary(c.env.ALLOWED_USER_ID, monthPrefix)
+    const total = await db.getMonthlySummary(ledger_id, monthPrefix)
     await ctx.reply(`📊 本月 (${monthPrefix}) 累積花費：$${total}`)
   })
 
   bot.command('categories', async (ctx) => {
-    const categories = await db.getCategories(c.env.ALLOWED_USER_ID)
+    const { ledger_id } = getLedgerInfo(ctx, c.env);
+    const categories = await db.getCategories(ledger_id)
     if (categories.length === 0) {
       await ctx.reply('📂 目前沒有任何帳目分類喔！')
       return
@@ -183,7 +216,8 @@ app.post('/webhook/telegram', async (c) => {
   })
 
   bot.command('export', async (ctx) => {
-    const expenses = await db.getAllExpenses(c.env.ALLOWED_USER_ID)
+    const { ledger_id } = getLedgerInfo(ctx, c.env);
+    const expenses = await db.getAllExpenses(ledger_id)
     if (expenses.length === 0) {
       await ctx.reply('目前沒有任何記帳紀錄。')
       return
@@ -198,6 +232,9 @@ app.post('/webhook/telegram', async (c) => {
 
   // 3. Core Text & Photo Logic
   bot.on(['message:text', 'message:photo'], async (ctx) => {
+    try {
+      const { ledger_id, user_id } = getLedgerInfo(ctx, c.env);
+
     // 3.1 Reply-and-modify/delete Anchor Logic
     if (ctx.message?.reply_to_message?.text && ctx.message.text) {
       const match = ctx.message.reply_to_message.text.match(/\(ID: #(\d+)\)/)
@@ -205,16 +242,16 @@ app.post('/webhook/telegram', async (c) => {
         const id = parseInt(match[1])
         const text = ctx.message.text
         if (text.includes('刪除') || text.includes('delete') || text === '刪掉') {
-          await db.deleteExpense(id, c.env.ALLOWED_USER_ID)
+          await db.deleteExpense(id, ledger_id)
           await ctx.reply(`🗑️ 帳目 #${id} 已刪除！`)
         } else {
-          const oldExp = await db.getExpense(id, c.env.ALLOWED_USER_ID)
+          const oldExp = await db.getExpense(id, ledger_id)
           if (!oldExp) {
             await ctx.reply(`❌ 找不到指定的帳目 #${id}！`)
             return
           }
           
-          const categories = await db.getCategories(c.env.ALLOWED_USER_ID)
+          const categories = await db.getCategories(ledger_id)
           const catNames = categories.map(c => c.name)
 
           const processRes = await processExpenseUpdateWithGemini(c.env.GEMINI_API_KEY, catNames, text, oldExp)
@@ -227,14 +264,14 @@ app.post('/webhook/telegram', async (c) => {
             if (processRes.date !== undefined) { dbUpdates.date = processRes.date; replyMsg.push(`📅 日期改為：${processRes.date}`) }
             if (processRes.item !== undefined) { dbUpdates.item = processRes.item; replyMsg.push(`🏷️ 項目改為：${processRes.item}`) }
             if (processRes.suggested_category !== undefined) {
-               let catId = await db.getCategoryByName(c.env.ALLOWED_USER_ID, processRes.suggested_category)
-               if (!catId) catId = await db.createCategory(c.env.ALLOWED_USER_ID, processRes.suggested_category)
+               let catId = await db.getCategoryByName(ledger_id, processRes.suggested_category)
+               if (!catId) catId = await db.createCategory(ledger_id, user_id, processRes.suggested_category)
                dbUpdates.category_id = catId
                replyMsg.push(`📂 分類改為：${processRes.suggested_category}`)
             }
 
             if (Object.keys(dbUpdates).length > 0) {
-              await db.updateExpense(id, c.env.ALLOWED_USER_ID, dbUpdates)
+              await db.updateExpense(id, ledger_id, dbUpdates)
               await ctx.reply(`🔄 帳目 #${id} 已更新！\n──────────\n${replyMsg.join('\n')}`)
             } else {
               await ctx.reply('無法判斷您要修改的內容。請具體說明要修改哪個欄位（如：金額改為 200）。')
@@ -264,7 +301,7 @@ app.post('/webhook/telegram', async (c) => {
       imageMime = 'image/jpeg' 
     }
 
-    const categories = await db.getCategories(c.env.ALLOWED_USER_ID)
+    const categories = await db.getCategories(ledger_id)
     const catNames = categories.map(c => c.name)
 
     const parsed = await processExpenseWithGemini(
@@ -281,13 +318,13 @@ app.post('/webhook/telegram', async (c) => {
     }
 
     if (parsed.action === 'query') {
-      const report = await db.queryExpenses(c.env.ALLOWED_USER_ID, parsed.filters || {})
+      const report = await db.queryExpenses(ledger_id, parsed.filters || {})
       await ctx.reply(report)
       return
     }
 
     if (parsed.action === 'delete_category' && parsed.category_name) {
-      const catId = await db.getCategoryByName(c.env.ALLOWED_USER_ID, parsed.category_name)
+      const catId = await db.getCategoryByName(ledger_id, parsed.category_name)
       if (!catId) {
         await ctx.reply(`找不到名為「${parsed.category_name}」的分類！`)
         return
@@ -296,7 +333,7 @@ app.post('/webhook/telegram', async (c) => {
       const otherCats = categories.filter(c => c.id !== catId)
       if (otherCats.length === 0) {
         // Edge case: only category
-        await db.deleteCategoryAndReassign(c.env.ALLOWED_USER_ID, catId, null)
+        await db.deleteCategoryAndReassign(ledger_id, user_id, catId, null)
         await ctx.reply(`🗑️ 已刪除分類「${parsed.category_name}」，因無其他分類，關聯帳目已直接移至系統底層「未分類」。`)
         return
       }
@@ -315,12 +352,12 @@ app.post('/webhook/telegram', async (c) => {
 
     if (parsed.action === 'insert' && parsed.data) {
       const { date, item, amount, suggested_category } = parsed.data
-      let categoryId = await db.getCategoryByName(c.env.ALLOWED_USER_ID, suggested_category)
+      let categoryId = await db.getCategoryByName(ledger_id, suggested_category)
       
       if (categoryId) {
         // Direct insertion
         const id = await db.insertExpense({
-          user_id: c.env.ALLOWED_USER_ID, date, item, amount, category_id: categoryId,
+          ledger_id: ledger_id, user_id: user_id, date, item, amount, category_id: categoryId,
           raw_message: textInput || undefined, media_reference: mediaRef || undefined
         })
         await ctx.reply(`✅ 已記錄支出！\n──────────\n📅 日期：${date}\n🏷️ 項目：${item}\n📂 分類：${suggested_category}\n💰 金額：$${amount}\n──────────\n(ID: #${id})`)
@@ -328,7 +365,7 @@ app.post('/webhook/telegram', async (c) => {
         // Dynamic Category Interaction Setup
         const draftId = crypto.randomUUID().slice(0, 8)
         await db.savePendingExpense({
-          draft_id: draftId, user_id: c.env.ALLOWED_USER_ID, date, item, amount, suggested_category,
+          draft_id: draftId, ledger_id: ledger_id, user_id: user_id, date, item, amount, suggested_category,
           raw_message: textInput || undefined, media_reference: mediaRef || undefined
         })
         const keyboard = new InlineKeyboard()
@@ -337,11 +374,20 @@ app.post('/webhook/telegram', async (c) => {
         
         await ctx.reply(`找不到合適分類，AI 建議為【${suggested_category}】，是否建立新分類並記帳？\n📅 ${date} | 🏷 ${item} | 💰 $${amount}`, { reply_markup: keyboard })
       }
+      }
+    } catch (e: any) {
+      console.error("Local Error Handler Caught:", e);
+      const isTimeout = e.message === 'Gemini API timeout';
+      const msg = isTimeout 
+        ? "⏳ API 回應超時 (Timeout)！請重新傳送。" 
+        : "⚠️ 發生系統異常，可能是 Gemini API 繁忙，請稍後再試。";
+      await ctx.reply(msg).catch(() => {});
     }
   })
 
   // 4. Inline Keyboard Callback Integration
   bot.on('callback_query:data', async (ctx) => {
+    const { ledger_id, user_id } = getLedgerInfo(ctx, c.env);
     const data = ctx.callbackQuery.data
     const parts = data.split(':')
     const action = parts[0]
@@ -361,11 +407,16 @@ app.post('/webhook/telegram', async (c) => {
         return
       }
 
-      let catId = await db.getCategoryByName(c.env.ALLOWED_USER_ID, draft.suggested_category)
-      if (!catId) catId = await db.createCategory(c.env.ALLOWED_USER_ID, draft.suggested_category)
+      if (draft.ledger_id !== ledger_id) {
+        await ctx.answerCallbackQuery({ text: '這不是你的草稿！', show_alert: true })
+        return
+      }
+
+      let catId = await db.getCategoryByName(ledger_id, draft.suggested_category)
+      if (!catId) catId = await db.createCategory(ledger_id, draft.user_id, draft.suggested_category)
       
       const id = await db.insertExpense({
-        user_id: c.env.ALLOWED_USER_ID, date: draft.date, item: draft.item, amount: draft.amount,
+        ledger_id: draft.ledger_id, user_id: draft.user_id, date: draft.date, item: draft.item, amount: draft.amount,
         category_id: catId, raw_message: draft.raw_message, media_reference: draft.media_reference
       })
       await db.deletePendingExpense(draftId)
@@ -386,12 +437,25 @@ app.post('/webhook/telegram', async (c) => {
       const newCatIdStr = parts[2]
       const newCatId = newCatIdStr === 'uncat' ? null : parseInt(newCatIdStr)
       
-      await db.deleteCategoryAndReassign(c.env.ALLOWED_USER_ID, oldCatId, newCatId)
+      await db.deleteCategoryAndReassign(ledger_id, user_id, oldCatId, newCatId)
       await ctx.editMessageText('✅ 已成功將關聯紀錄移轉並刪除舊分類！')
       await ctx.answerCallbackQuery()
       return
     }
   })
+
+  bot.catch(async (err) => {
+    console.error("Bot Error:", err);
+    try {
+      const isTimeout = err.error instanceof Error && err.error.message === 'Gemini API timeout';
+      const msg = isTimeout 
+        ? "⏳ API 回應超時 (Timeout)！可能是圖片處理太久或網路不穩，請重新傳送。" 
+        : "⚠️ 發生未預期的系統錯誤 (可能是 API 速率限制或格式異常)，請稍後再試。";
+      await err.ctx.reply(msg);
+    } catch (replyErr) {
+      console.error("Failed to send error notification:", replyErr);
+    }
+  });
 
   // 5. Cloudflare Workers safe background execution pattern
   const update = await c.req.json()
